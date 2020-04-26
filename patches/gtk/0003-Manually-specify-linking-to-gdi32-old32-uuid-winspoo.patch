@@ -1,0 +1,49 @@
+From e8342674e32e82ed9649f1b60361322ccdf6fef3 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Martin=20Storsj=C3=B6?= <martin@martin.st>
+Date: Sat, 25 Apr 2020 00:57:53 +0300
+Subject: [PATCH 3/4] Manually specify linking to
+ gdi32/old32/uuid/winspool/comdlg32
+
+This isn't necessary with a newer version of meson, including
+the fix from https://github.com/mesonbuild/meson/pull/6727,
+part of the Meson 0.54.0 release.
+
+It's not sent upstream, as it's only necessary for building with
+older Meson versions.
+---
+ gdk/meson.build | 3 +++
+ gtk/meson.build | 2 +-
+ 2 files changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/gdk/meson.build b/gdk/meson.build
+index 4bb1bf2b6c..a67b8f75fa 100644
+--- a/gdk/meson.build
++++ b/gdk/meson.build
+@@ -215,8 +215,11 @@ if win32_enabled
+   gdk_deps += [cc.find_library('advapi32'),
+                cc.find_library('comctl32'),
+                cc.find_library('dwmapi'),
++               cc.find_library('gdi32'),
+                cc.find_library('imm32'),
++               cc.find_library('ole32'),
+                cc.find_library('setupapi'),
++               cc.find_library('uuid'),
+                cc.find_library('winmm')]
+ 
+   gdk_rc = configure_file(
+diff --git a/gtk/meson.build b/gtk/meson.build
+index 5a0b1547d8..a4b97c4e1a 100644
+--- a/gtk/meson.build
++++ b/gtk/meson.build
+@@ -857,7 +857,7 @@ endif
+ if win32_enabled
+   gtk_cargs += []
+   gtk_sources += gtk_use_win32_sources
+-  gtk_deps += [ giowin32_dep, pangowin32_dep ]
++  gtk_deps += [ giowin32_dep, pangowin32_dep, cc.find_library('winspool'), cc.find_library('comdlg32') ]
+ 
+   gtk_rc_body = configure_file(
+     input: 'gtk-win32.rc.body.in',
+-- 
+2.17.1
+

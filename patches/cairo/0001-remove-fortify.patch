@@ -1,0 +1,22 @@
+Remove use of -D_FORTIFY_SOURCE=2 from the generated
+configure script.
+
+The current versions of mingw-w64 have gained support for
+-D_FORTIFY_SOURCE now, but when using it, the built project
+needs to manually specify -lssp to link successfully.
+
+Just remove this option to avoid having to pass that linker option,
+achieving no worse level of security as with earlier versions of
+mingw-w64.
+
+--- cairo/configure.orig	2020-03-03 14:02:30.722564025 +0200
++++ cairo/configure	2020-03-03 14:02:40.234361555 +0200
+@@ -19171,8 +19171,6 @@
+ 
+ MAYBE_WARN="$MAYBE_WARN -fno-strict-aliasing -fno-common"
+ 
+-MAYBE_WARN="$MAYBE_WARN -Wp,-D_FORTIFY_SOURCE=2"
+-
+ # invalidate cached value if MAYBE_WARN has changed
+ if test "x$cairo_cv_warn_maybe" != "x$MAYBE_WARN"; then
+ 	unset cairo_cv_warn_cflags

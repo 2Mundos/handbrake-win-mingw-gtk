@@ -1,0 +1,39 @@
+From 59d7af44e6eb7aeda35cca9cf5419827cc142b5c Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Martin=20Storsj=C3=B6?= <martin@martin.st>
+Date: Tue, 31 Mar 2020 23:54:17 +0300
+Subject: [PATCH 1/7] Don't misdetect stpcpy on windows platforms on clang
+
+See https://github.com/mesonbuild/meson/issues/3672 and
+https://github.com/mesonbuild/meson/issues/5628 for explanations
+of cases where meson misdetects functions due to clang builtins (that
+always are available, regardless of whether the platform actually
+provides them).
+
+This is being discussed for upstreaming at
+https://gitlab.gnome.org/GNOME/glib/-/merge_requests/1439.
+---
+ meson.build | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/meson.build b/meson.build
+index fd1623aad..7834bf61c 100644
+--- a/meson.build
++++ b/meson.build
+@@ -530,8 +530,12 @@ foreach f : functions
+   endif
+ endforeach
+ 
+-# Check that stpcpy() is usable; must use header
+-if cc.has_function('stpcpy', prefix : '#include <string.h>')
++# Check that stpcpy() is usable; must use header.
++# This is missing on windows, but meson misdetects it when using clang,
++# see https://github.com/mesonbuild/meson/issues/3672 and
++# https://github.com/mesonbuild/meson/issues/5628.
++if host_system != 'windows' and \
++   cc.has_function('stpcpy', prefix : '#include <string.h>')
+   glib_conf.set('HAVE_STPCPY', 1)
+ endif
+ 
+-- 
+2.17.1
+

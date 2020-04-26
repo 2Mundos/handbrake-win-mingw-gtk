@@ -1,0 +1,27 @@
+From 2de8e7a49c3fb30b31af718a3a550549c25ecfdc Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Martin=20Storsj=C3=B6?= <martin@martin.st>
+Date: Sat, 25 Apr 2020 12:06:48 +0300
+Subject: [PATCH] meson: Remove -Werror=implicit-fallthrough
+
+The code base doesn't use G_GNUC_FALLTHROUGH but only fallthrough
+comments (which clang doesn't recognize) and G_GNUC_FALLTHROUGH
+isn't defined on clang at all.
+---
+ meson.build | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/meson.build b/meson.build
+index 81b4a35b..b5fc8553 100644
+--- a/meson.build
++++ b/meson.build
+@@ -87,7 +87,6 @@ elif cc.get_id() == 'gcc' or cc.get_id() == 'clang'
+     '-Wno-uninitialized',
+     '-Wno-shadow',
+     '-Werror=implicit',
+-    '-Werror=implicit-fallthrough',
+     '-Werror=nonnull',
+     '-Werror=init-self',
+     '-Werror=main',
+-- 
+2.17.1
+

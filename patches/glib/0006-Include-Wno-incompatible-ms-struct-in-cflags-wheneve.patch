@@ -1,0 +1,48 @@
+From 50e08d4d4515023df7d06a60b498658f166d9d33 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Martin=20Storsj=C3=B6?= <martin@martin.st>
+Date: Tue, 31 Mar 2020 22:56:50 +0300
+Subject: [PATCH 6/7] Include -Wno-incompatible-ms-struct in cflags whenever
+ -mms-bitfields is included
+
+Clang gives fatal errors when compiling nontrivial C++ classes, if
+the -mms-bitfields flag is passed (as this flag requests struct
+layout compatibility with MSVC, while the C++ ABI is incompatible).
+
+Glib itself doesn't trigger this warning, but glib places the
+-mms-bitfields flag in the cflags of the generated pkg-config file,
+breaking compilation for users of the library that use it from C++.
+
+This requires passing the -Wno-incompatible-ms-struct flag in the
+pkg-config file along with -mms-bitfields, but this flag is only
+understood by Clang - making the installed pkg-config file usable
+only by the same compiler that built glib itself.
+
+This hasn't been sent upstream yet, as it is a bit of a kludge.
+---
+ meson.build | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/meson.build b/meson.build
+index 7834bf61c..88699c32b 100644
+--- a/meson.build
++++ b/meson.build
+@@ -2110,6 +2110,16 @@ if host_system == 'windows' and cc.get_id() != 'msvc' and cc.get_id() != 'clang-
+   # compiling for Win32 with gcc. It is used for the whole project and exposed
+   # in glib-2.0.pc.
+   win32_cflags = ['-mms-bitfields']
++  # Clang gives fatal errors when compiling C++ code with base classes or
++  # virtual functions, as -mms-bitfields doesn't make the C++ ABI compatible
++  # with microsoft's. As -mms-bitfields propagates to the pkg-config file
++  # (to callers unaware of it even being there), we need to add
++  # -Wno-incompatible-ms-struct in tandem with -mms-bitfields here.
++  # Unfortunately, this makes the pkg-config file impossible to use for other
++  # compilers that don't support this particular flag.
++  if cc.has_argument('-Wincompatible-ms-struct')
++    win32_cflags += '-Wno-incompatible-ms-struct'
++  endif
+   add_project_arguments(win32_cflags, language : 'c')
+ 
+   # Win32 API libs, used only by libglib and exposed in glib-2.0.pc
+-- 
+2.17.1
+

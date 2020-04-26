@@ -1,0 +1,31 @@
+From 4d82233ea98f2fba2a89241996f48f13fe09fcaf Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Martin=20Storsj=C3=B6?= <martin@martin.st>
+Date: Sun, 5 Apr 2020 00:26:19 +0300
+Subject: [PATCH 1/4] Add a missing 'extern' attribute, to fix building with
+ -fno-common
+
+With C compilers defaulting to -fcommon, this isn't an issue, but
+upcoming compilers (GCC 10 and Clang 11) will default to -fno-common,
+ending up with duplicate definitions of this variable.
+
+(cherry picked from commit 01d4c29ce34d534110cd67cc5af5b3884750423e)
+---
+ gdk/win32/gdkprivate-win32.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/gdk/win32/gdkprivate-win32.h b/gdk/win32/gdkprivate-win32.h
+index e8ca08ce14..99616e170d 100644
+--- a/gdk/win32/gdkprivate-win32.h
++++ b/gdk/win32/gdkprivate-win32.h
+@@ -298,7 +298,7 @@ extern UINT		 _gdk_input_codepage;
+ extern guint		 _gdk_keymap_serial;
+ 
+ /* The singleton selection object pointer */
+-GdkWin32Selection *_win32_selection;
++extern GdkWin32Selection *_win32_selection;
+ 
+ void _gdk_win32_dnd_do_dragdrop (void);
+ void _gdk_win32_ole2_dnd_property_change (GdkAtom       type,
+-- 
+2.17.1
+

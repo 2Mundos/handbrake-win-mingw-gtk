@@ -1,0 +1,16 @@
+[binaries]
+c = '@ARCH@-w64-mingw32-gcc'
+cpp = '@ARCH@-w64-mingw32-g++'
+ar = '@ARCH@-w64-mingw32-ar'
+strip = '@ARCH@-w64-mingw32-strip'
+windres = '@ARCH@-w64-mingw32-windres'
+pkgconfig = 'pkg-config'
+
+[properties]
+needs_exe_wrapper = true
+
+[host_machine]
+system = 'windows'
+cpu_family = '@CPU_FAMILY@'
+cpu = '@CPU@'
+endian = 'little'

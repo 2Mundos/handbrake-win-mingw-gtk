@@ -1,0 +1,40 @@
+From 04cea4f4e76a995829da61e5dedf144c48549bda Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Martin=20Storsj=C3=B6?= <martin@martin.st>
+Date: Sun, 5 Apr 2020 22:57:22 +0300
+Subject: [PATCH 2/4] meson: Don't execute post-install.py if cross compiling
+
+(cherry picked from commit 531766fe642aec5270565ca885f423f4206c68a9)
+---
+ meson.build | 16 ++++++++++------
+ 1 file changed, 10 insertions(+), 6 deletions(-)
+
+diff --git a/meson.build b/meson.build
+index 0240cc3898..cc98754db0 100644
+--- a/meson.build
++++ b/meson.build
+@@ -973,12 +973,16 @@ subdir('docs/reference')
+ install_data('m4macros/gtk-3.0.m4', install_dir: join_paths(get_option('datadir'), 'aclocal'))
+ 
+ # Keep this in sync with post-install.py expected arguments
+-meson.add_install_script('build-aux/meson/post-install.py',
+-                         gtk_api_version,
+-                         gtk_binary_version,
+-                         join_paths(gtk_prefix, get_option('bindir')),
+-                         gtk_libdir,
+-                         gtk_datadir)
++if not meson.is_cross_build()
++  meson.add_install_script('build-aux/meson/post-install.py',
++                           gtk_api_version,
++                           gtk_binary_version,
++                           join_paths(gtk_prefix, get_option('bindir')),
++                           gtk_libdir,
++                           gtk_datadir)
++else
++  message('Not executing post-install steps automatically when cross compiling')
++endif
+ 
+ if host_machine.system() != 'windows'
+   # Install Valgrind suppression files (except on Windows,
+-- 
+2.17.1
+

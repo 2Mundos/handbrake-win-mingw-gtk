@@ -1,0 +1,60 @@
+From f049df7f00ef676406bcdf2959b933f09ea4e4d0 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Martin=20Storsj=C3=B6?= <martin@martin.st>
+Date: Sun, 5 Apr 2020 00:06:37 +0300
+Subject: [PATCH 3/7] Silence clang errors about -Wformat-nonliteral due to
+ missing intermediate attributes
+
+By default, meson builds glib with -Werror=format=2, which
+implies -Werror=format-nonliteral. With these flags, clang errors
+out on e.g. the g_message_win32_error function, due to "format
+string is not a string literal". This function takes a format
+string, and passes the va_list of the arguments onwards to
+g_strdup_vprintf, which is annotated with printf attributes.
+
+When passing a string+va_list to another function, GCC doesn't warn
+with -Wformat-nonliteral. Clang however does warn, unless the
+functions themselves (g_message_win32_error and set_error) are decorated
+with similar printf attributes (to force the same checks upon the
+caller) - see
+https://clang.llvm.org/docs/AttributeReference.html#format
+for reference.
+
+Adding these attributes revealed one existing mismatched format string
+(fixed in the preceding commit).
+
+This is being discussed for upstreaming at
+https://gitlab.gnome.org/GNOME/glib/-/merge_requests/1440.
+---
+ gio/gregistrysettingsbackend.c | 2 +-
+ gmodule/gmodule-win32.c        | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/gio/gregistrysettingsbackend.c b/gio/gregistrysettingsbackend.c
+index 9f9d71857..b0e295a04 100644
+--- a/gio/gregistrysettingsbackend.c
++++ b/gio/gregistrysettingsbackend.c
+@@ -201,7 +201,7 @@ trace (const char *format,
+  * equivalent function for g_warning because none of the registry errors can
+  * result from programmer error (Microsoft programmers don't count), instead
+  * they will mostly occur from people messing with the registry by hand. */
+-static void
++static void G_GNUC_PRINTF (2, 3)
+ g_message_win32_error (DWORD        result_code,
+                        const gchar *format,
+                       ...)
+diff --git a/gmodule/gmodule-win32.c b/gmodule/gmodule-win32.c
+index 5057d256e..fef4d893d 100644
+--- a/gmodule/gmodule-win32.c
++++ b/gmodule/gmodule-win32.c
+@@ -39,7 +39,7 @@
+ #include <sys/cygwin.h>
+ #endif
+ 
+-static void
++static void G_GNUC_PRINTF (1, 2)
+ set_error (const gchar *format,
+ 	   ...)
+ {
+-- 
+2.17.1
+
