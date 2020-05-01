@@ -1,7 +1,7 @@
-From f049df7f00ef676406bcdf2959b933f09ea4e4d0 Mon Sep 17 00:00:00 2001
+From cbb95f56a6a1d2261d2013f8bd7a0b1e8111d464 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Martin=20Storsj=C3=B6?= <martin@martin.st>
 Date: Sun, 5 Apr 2020 00:06:37 +0300
-Subject: [PATCH 3/7] Silence clang errors about -Wformat-nonliteral due to
+Subject: [PATCH 4/8] Silence clang errors about -Wformat-nonliteral due to
  missing intermediate attributes
 
 By default, meson builds glib with -Werror=format=2, which
@@ -22,8 +22,7 @@ for reference.
 Adding these attributes revealed one existing mismatched format string
 (fixed in the preceding commit).
 
-This is being discussed for upstreaming at
-https://gitlab.gnome.org/GNOME/glib/-/merge_requests/1440.
+(cherry picked from commit 6cae01c2f53ce0162043efb69d93678e9c20d733)
 ---
  gio/gregistrysettingsbackend.c | 2 +-
  gmodule/gmodule-win32.c        | 2 +-

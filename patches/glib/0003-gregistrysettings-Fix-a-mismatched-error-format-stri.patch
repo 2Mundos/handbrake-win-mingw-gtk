@@ -1,10 +1,9 @@
-From 8fc77a1dd7301c5763c533f1dc95259301be6e5d Mon Sep 17 00:00:00 2001
+From d6cc75261eb9f5d0ef4a8c71fff883a0b7b276b0 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Martin=20Storsj=C3=B6?= <martin@martin.st>
 Date: Sun, 5 Apr 2020 00:05:36 +0300
-Subject: [PATCH 2/7] gregistrysettings: Fix a mismatched error format string
+Subject: [PATCH 3/8] gregistrysettings: Fix a mismatched error format string
 
-This is being discussed for upstreaming at
-https://gitlab.gnome.org/GNOME/glib/-/merge_requests/1440.
+(cherry picked from commit 5ed1e39865dfe4d7e56226fd19449dc199a96c8c)
 ---
  gio/gregistrysettingsbackend.c | 2 +-
  1 file changed, 1 insertion(+), 1 deletion(-)

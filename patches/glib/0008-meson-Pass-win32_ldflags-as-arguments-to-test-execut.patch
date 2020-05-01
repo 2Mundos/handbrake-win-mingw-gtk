@@ -1,7 +1,7 @@
-From 5bcb3415c8acb61a6d69d8b1b560f39d24dc2b84 Mon Sep 17 00:00:00 2001
+From 430b49a17642d54182d1ce7451c4a6a9141f0340 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Martin=20Storsj=C3=B6?= <martin@martin.st>
 Date: Tue, 31 Mar 2020 22:50:43 +0300
-Subject: [PATCH 7/7] meson: Pass win32_ldflags as arguments to test
+Subject: [PATCH 8/8] meson: Pass win32_ldflags as arguments to test
  executables
 
 This makes sure to link the test executables against ole32.dll.

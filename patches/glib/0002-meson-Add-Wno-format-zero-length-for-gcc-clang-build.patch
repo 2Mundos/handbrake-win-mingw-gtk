@@ -1,0 +1,29 @@
+From 3053507d9df4bb26d4241abce2440c4323323705 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Martin=20Storsj=C3=B6?= <martin@martin.st>
+Date: Mon, 27 Apr 2020 16:19:35 +0300
+Subject: [PATCH 2/8] meson: Add -Wno-format-zero-length for gcc/clang builds
+
+Zero length format strings isn't something that needs to be warned
+about.
+
+(cherry picked from commit 4cf4dbfc1e36d0b792b0e4f6eb2359787ff9e155)
+---
+ meson.build | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/meson.build b/meson.build
+index 7834bf61c..6d39ddf8d 100644
+--- a/meson.build
++++ b/meson.build
+@@ -374,6 +374,8 @@ if cc.get_id() == 'gcc' or cc.get_id() == 'clang'
+     # Due to function casts through (void*) we cannot support -Wpedantic:
+     # https://wiki.gnome.org/Projects/GLib/CompilerRequirements#Function_pointer_conversions.
+     '-Wno-pedantic',
++    # A zero-length format string shouldn't be considered an issue.
++    '-Wno-format-zero-length',
+     '-Werror=declaration-after-statement',
+     '-Werror=format=2',
+     '-Werror=implicit-function-declaration',
+-- 
+2.17.1
+

@@ -1,7 +1,7 @@
-From a26dad86b73dd5e94be48489e43f3a0017ecbfe5 Mon Sep 17 00:00:00 2001
+From d98a594454b4d035bbd7a2936317e7fb62473eba Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Martin=20Storsj=C3=B6?= <martin@martin.st>
 Date: Sat, 25 Apr 2020 21:10:15 +0300
-Subject: [PATCH 5/7] meson: Fix the gnulib checks for isnan* functions
+Subject: [PATCH 6/8] meson: Fix the gnulib checks for isnan* functions
 
 The gnulib math code uses __builtin_isnanf and __builtin_isnanl
 within the __GNUC__ >= 4 ifdef, and clang doesn't provide those
@@ -14,8 +14,7 @@ this matches how gnulib's m4 routines does it (in gnulib/m4/isnan.m4).
 This fixes the isnan functions in the gnulib math header replacement
 work on Clang.
 
-This has been sent upstream at
-https://gitlab.gnome.org/GNOME/glib/-/merge_requests/1459.
+(cherry picked from commit fcc7489d465a0e6152e9f5ab0997266df357e83b)
 ---
  glib/gnulib/meson.build | 19 +++++++++++++++----
  1 file changed, 15 insertions(+), 4 deletions(-)
