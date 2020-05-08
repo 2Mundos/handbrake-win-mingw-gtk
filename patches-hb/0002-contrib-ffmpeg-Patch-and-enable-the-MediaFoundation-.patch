@@ -1,7 +1,7 @@
-From f4c1253fabea6421caf3ce0616d97ff59b444c73 Mon Sep 17 00:00:00 2001
+From be0d3f91ab0cf60af09421505a946f48ce5bfc62 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Martin=20Storsj=C3=B6?= <martin@martin.st>
 Date: Fri, 24 Apr 2020 15:21:58 +0300
-Subject: [PATCH 4/4] contrib: ffmpeg: Patch and enable the MediaFoundation
+Subject: [PATCH 2/8] contrib: ffmpeg: Patch and enable the MediaFoundation
  encoder wrappers
 
 ---

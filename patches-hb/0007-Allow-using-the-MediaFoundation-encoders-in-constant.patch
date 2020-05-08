@@ -1,0 +1,71 @@
+From a9f25613e6511ed71f742b600dda47ef8ab09143 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Martin=20Storsj=C3=B6?= <martin@martin.st>
+Date: Fri, 8 May 2020 15:31:11 +0300
+Subject: [PATCH 7/8] Allow using the MediaFoundation encoders in constant
+ quality mode
+
+---
+ libhb/common.c     | 10 ++++++++--
+ libhb/encavcodec.c | 12 ++++++++++++
+ 2 files changed, 20 insertions(+), 2 deletions(-)
+
+diff --git a/libhb/common.c b/libhb/common.c
+index 47d3fc424..3768da742 100644
+--- a/libhb/common.c
++++ b/libhb/common.c
+@@ -1405,14 +1405,20 @@ void hb_video_quality_get_limits(uint32_t codec, float *low, float *high,
+ 
+         case HB_VCODEC_FFMPEG_VT_H264:
+         case HB_VCODEC_FFMPEG_VT_H265:
+-        case HB_VCODEC_FFMPEG_MF_H264:
+-        case HB_VCODEC_FFMPEG_MF_H265: // TODO
+             *direction   = 1;
+             *granularity = 0.1;
+             *low         = 0.;
+             *high        = 0.;
+             break;
+ 
++        case HB_VCODEC_FFMPEG_MF_H264:
++        case HB_VCODEC_FFMPEG_MF_H265:
++            *direction   = 0;
++            *granularity = 1;
++            *low         = 0;
++            *high        = 100;
++            break;
++
+         case HB_VCODEC_FFMPEG_MPEG2:
+         case HB_VCODEC_FFMPEG_MPEG4:
+         default:
+diff --git a/libhb/encavcodec.c b/libhb/encavcodec.c
+index 4c12df4dd..1fa355d64 100644
+--- a/libhb/encavcodec.c
++++ b/libhb/encavcodec.c
+@@ -346,6 +346,10 @@ int encavcodecInit( hb_work_object_t * w, hb_job_t * job )
+             av_dict_set( &av_opts, "rc", "vbr_peak", 0 );
+             hb_log( "encavcodec: encoding at rc=vbr_peak Bitrate %d", job->vbitrate );
+         }
++
++        if (job->vcodec == HB_VCODEC_FFMPEG_MF_H264 ||
++            job->vcodec == HB_VCODEC_FFMPEG_MF_H265)
++            av_dict_set(&av_opts, "rate_control", "pc_vbr", 0); // options are cbr, pc_vbr, u_vbr, ld_vbr, g_vbr, gld_vbr
+     }
+     else
+     {
+@@ -427,6 +431,14 @@ int encavcodecInit( hb_work_object_t * w, hb_job_t * job )
+             }
+             hb_log( "encavcodec: encoding at QP %.2f", job->vquality );
+         }
++        else if (job->vcodec == HB_VCODEC_FFMPEG_MF_H264 ||
++                 job->vcodec == HB_VCODEC_FFMPEG_MF_H265)
++        {
++            char quality[7];
++            snprintf(quality, 7, "%d", (int)job->vquality);
++            av_dict_set(&av_opts, "rate_control", "quality", 0);
++            av_dict_set(&av_opts, "quality", quality, 0);
++        }
+         else
+         {
+             // These settings produce better image quality than
+-- 
+2.17.1
+

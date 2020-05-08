@@ -1,0 +1,276 @@
+From e8d7766d1bb907f70ff4e2382c8e90f2502feecf Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Martin=20Storsj=C3=B6?= <martin@martin.st>
+Date: Fri, 8 May 2020 13:18:32 +0300
+Subject: [PATCH 3/8] WIP: Initial integration of ffmpeg MediaFoundation
+ encoder wrapper
+
+---
+ libhb/common.c           | 17 ++++++++++++++
+ libhb/encavcodec.c       | 51 ++++++++++++++++++++++++++++++++++++++++
+ libhb/handbrake/common.h |  8 ++++---
+ libhb/muxavformat.c      |  2 ++
+ libhb/work.c             | 15 ++++++++++++
+ 5 files changed, 90 insertions(+), 3 deletions(-)
+
+diff --git a/libhb/common.c b/libhb/common.c
+index ef067f545..47d3fc424 100644
+--- a/libhb/common.c
++++ b/libhb/common.c
+@@ -255,6 +255,7 @@ hb_encoder_internal_t hb_video_encoders[]  =
+     { { "H.264 (AMD VCE)",     "vce_h264",   "H.264 (AMD VCE)",      HB_VCODEC_FFMPEG_VCE_H264,   HB_MUX_MASK_MP4|HB_MUX_MASK_MKV, }, NULL, 1, HB_GID_VCODEC_H264,   },
+     { { "H.264 (NVEnc)",       "nvenc_h264", "H.264 (NVEnc)",      HB_VCODEC_FFMPEG_NVENC_H264, HB_MUX_MASK_MP4|HB_MUX_MASK_MKV, }, NULL, 1, HB_GID_VCODEC_H264,   },
+     { { "H.264 (VideoToolbox)","vt_h264",    "H.264 (libavcodec)",      HB_VCODEC_FFMPEG_VT_H264,    HB_MUX_MASK_MP4|HB_MUX_MASK_MKV, }, NULL, 1, HB_GID_VCODEC_H264,   },
++    { { "H.264 (MediaFoundation)","mf_h264", "H.264 (libavcodec)",      HB_VCODEC_FFMPEG_MF_H264,    HB_MUX_MASK_MP4|HB_MUX_MASK_MKV, }, NULL, 1, HB_GID_VCODEC_H264,   },
+     { { "H.265 (x265)",        "x265",       "H.265 (libx265)",         HB_VCODEC_X265_8BIT,         HB_MUX_AV_MP4|HB_MUX_AV_MKV,   }, NULL, 1, HB_GID_VCODEC_H265,   },
+     { { "H.265 10-bit (x265)", "x265_10bit", "H.265 10-bit (libx265)",  HB_VCODEC_X265_10BIT,        HB_MUX_AV_MP4|HB_MUX_AV_MKV,   }, NULL, 1, HB_GID_VCODEC_H265,   },
+     { { "H.265 12-bit (x265)", "x265_12bit", "H.265 12-bit (libx265)",  HB_VCODEC_X265_12BIT,        HB_MUX_AV_MP4|HB_MUX_AV_MKV,   }, NULL, 1, HB_GID_VCODEC_H265,   },
+@@ -264,6 +265,7 @@ hb_encoder_internal_t hb_video_encoders[]  =
+     { { "H.265 (AMD VCE)",     "vce_h265",   "H.265 (AMD VCE)",      HB_VCODEC_FFMPEG_VCE_H265,   HB_MUX_MASK_MP4|HB_MUX_MASK_MKV, }, NULL, 1, HB_GID_VCODEC_H265,   },
+     { { "H.265 (NVEnc)",       "nvenc_h265", "H.265 (NVEnc)",      HB_VCODEC_FFMPEG_NVENC_H265, HB_MUX_MASK_MP4|HB_MUX_MASK_MKV, }, NULL, 1, HB_GID_VCODEC_H265,   },
+     { { "H.265 (VideoToolbox)","vt_h265",    "H.265 (libavcodec)",      HB_VCODEC_FFMPEG_VT_H265,    HB_MUX_MASK_MP4|HB_MUX_MASK_MKV, }, NULL, 1, HB_GID_VCODEC_H265,   },
++    { { "H.265 (MediaFoundation)","mf_h265", "H.265 (libavcodec)",      HB_VCODEC_FFMPEG_MF_H265,    HB_MUX_MASK_MP4|HB_MUX_MASK_MKV, }, NULL, 1, HB_GID_VCODEC_H265,   },
+     { { "MPEG-4",              "mpeg4",      "MPEG-4 (libavcodec)",     HB_VCODEC_FFMPEG_MPEG4,      HB_MUX_MASK_MP4|HB_MUX_MASK_MKV, }, NULL, 1, HB_GID_VCODEC_MPEG4,  },
+     { { "MPEG-2",              "mpeg2",      "MPEG-2 (libavcodec)",     HB_VCODEC_FFMPEG_MPEG2,      HB_MUX_MASK_MP4|HB_MUX_MASK_MKV, }, NULL, 1, HB_GID_VCODEC_MPEG2,  },
+     { { "VP8",                 "VP8",        "VP8 (libvpx)",            HB_VCODEC_FFMPEG_VP8,       HB_MUX_MASK_WEBM|HB_MUX_MASK_MKV, }, NULL, 1, HB_GID_VCODEC_VP8,    },
+@@ -304,6 +306,15 @@ static int hb_video_encoder_is_enabled(int encoder, int disable_hardware)
+             case HB_VCODEC_FFMPEG_VT_H265:
+                 return hb_vt_h265_is_available();
+ #endif
++
++#ifdef _WIN32
++            // TODO: Try to instantiate a throwaway encoder to see if a suitable MediaFoundation encoder can be found?
++            // Alt, implement logic similar to ffmpeg's encoder selection, to see if one would be found.
++            case HB_VCODEC_FFMPEG_MF_H264:
++                return 1;
++            case HB_VCODEC_FFMPEG_MF_H265:
++                return 1;
++#endif
+         }
+     }
+ 
+@@ -1394,6 +1405,8 @@ void hb_video_quality_get_limits(uint32_t codec, float *low, float *high,
+ 
+         case HB_VCODEC_FFMPEG_VT_H264:
+         case HB_VCODEC_FFMPEG_VT_H265:
++        case HB_VCODEC_FFMPEG_MF_H264:
++        case HB_VCODEC_FFMPEG_MF_H265: // TODO
+             *direction   = 1;
+             *granularity = 0.1;
+             *low         = 0.;
+@@ -1548,6 +1561,8 @@ const char* const* hb_video_encoder_get_profiles(int encoder)
+         case HB_VCODEC_FFMPEG_NVENC_H265:
+         case HB_VCODEC_FFMPEG_VT_H264:
+         case HB_VCODEC_FFMPEG_VT_H265:
++        case HB_VCODEC_FFMPEG_MF_H264:
++        case HB_VCODEC_FFMPEG_MF_H265:
+             return hb_av_profile_get_names(encoder);
+         default:
+             return NULL;
+@@ -1569,6 +1584,7 @@ const char* const* hb_video_encoder_get_levels(int encoder)
+         case HB_VCODEC_X264_10BIT:
+         case HB_VCODEC_FFMPEG_NVENC_H264:
+         case HB_VCODEC_FFMPEG_VT_H264:
++        case HB_VCODEC_FFMPEG_MF_H264:
+             return hb_h264_level_names;
+ 
+ #if HB_PROJECT_FEATURE_VCE
+@@ -1582,6 +1598,7 @@ const char* const* hb_video_encoder_get_levels(int encoder)
+         case HB_VCODEC_X265_16BIT:
+         case HB_VCODEC_FFMPEG_NVENC_H265:
+         case HB_VCODEC_FFMPEG_VCE_H265:
++        case HB_VCODEC_FFMPEG_MF_H265:
+             return hb_h265_level_names;
+ 
+ #ifdef __APPLE__
+diff --git a/libhb/encavcodec.c b/libhb/encavcodec.c
+index e6899412f..a3f26e833 100644
+--- a/libhb/encavcodec.c
++++ b/libhb/encavcodec.c
+@@ -98,6 +98,21 @@ static const char * const h265_vt_profile_name[] =
+     "auto", "main",  NULL // "main10" not currently supported.
+ };
+ 
++static const char * const h26x_mf_preset_name[] =
++{
++    "default", NULL
++};
++
++static const char * const h264_mf_profile_name[] =
++{
++    "auto", "baseline", "main", "high", NULL
++};
++
++static const char * const h265_mf_profile_name[] =
++{
++    "auto", "main",  NULL
++};
++
+ int encavcodecInit( hb_work_object_t * w, hb_job_t * job )
+ {
+     int ret = 0;
+@@ -154,6 +169,10 @@ int encavcodecInit( hb_work_object_t * w, hb_job_t * job )
+                     hb_log("encavcodecInit: H.264 (VideoToolbox)");
+                     codec_name = "h264_videotoolbox";
+                     break;
++                case HB_VCODEC_FFMPEG_MF_H264:
++                    hb_log("encavcodecInit: H.264 (MediaFoundation)");
++                    codec_name = "h264_mf";
++                    break;
+             }
+         }break;
+         case AV_CODEC_ID_HEVC:
+@@ -171,6 +190,10 @@ int encavcodecInit( hb_work_object_t * w, hb_job_t * job )
+                     hb_log("encavcodecInit: H.265 (VideoToolbox)");
+                     codec_name = "hevc_videotoolbox";
+                     break;
++                case HB_VCODEC_FFMPEG_MF_H265:
++                    hb_log("encavcodecInit: H.265 (MediaFoundation)");
++                    codec_name = "hevc_mf";
++                    break;
+             }
+         }break;
+     }
+@@ -571,6 +594,26 @@ int encavcodecInit( hb_work_object_t * w, hb_job_t * job )
+         av_dict_set(&av_opts, "gops_per_idr", "1", 0);
+     }
+ 
++    if (job->vcodec == HB_VCODEC_FFMPEG_MF_H264)
++    {
++        context->profile = FF_PROFILE_UNKNOWN;
++        if (job->encoder_profile != NULL && *job->encoder_profile)
++        {
++            if (!strcasecmp(job->encoder_profile, "baseline"))
++                context->profile = FF_PROFILE_H264_BASELINE;
++            else if (!strcasecmp(job->encoder_profile, "main"))
++                 context->profile = FF_PROFILE_H264_MAIN;
++            else if (!strcasecmp(job->encoder_profile, "high"))
++                context->profile = FF_PROFILE_H264_HIGH;
++        }
++    }
++
++    if (job->vcodec == HB_VCODEC_FFMPEG_MF_H264 ||
++        job->vcodec == HB_VCODEC_FFMPEG_MF_H265)
++    {
++//        av_dict_set(&av_opts, "hw_encoding", "1", 0);
++    }
++
+     if( job->pass_id == HB_PASS_ENCODE_1ST ||
+         job->pass_id == HB_PASS_ENCODE_2ND )
+     {
+@@ -1086,6 +1129,10 @@ const char* const* hb_av_preset_get_names(int encoder)
+         case HB_VCODEC_FFMPEG_VT_H265:
+             return h26x_vt_preset_name;
+ 
++        case HB_VCODEC_FFMPEG_MF_H264:
++        case HB_VCODEC_FFMPEG_MF_H265:
++            return h26x_mf_preset_name;
++
+         default:
+             return NULL;
+     }
+@@ -1103,6 +1150,10 @@ const char* const* hb_av_profile_get_names(int encoder)
+             return h264_vt_profile_name;
+         case HB_VCODEC_FFMPEG_VT_H265:
+             return h265_vt_profile_name;
++        case HB_VCODEC_FFMPEG_MF_H264:
++            return h264_mf_profile_name;
++        case HB_VCODEC_FFMPEG_MF_H265:
++            return h265_mf_profile_name;
+ 
+          default:
+              return NULL;
+diff --git a/libhb/handbrake/common.h b/libhb/handbrake/common.h
+index 3d91be0da..989f0837d 100644
+--- a/libhb/handbrake/common.h
++++ b/libhb/handbrake/common.h
+@@ -523,7 +523,9 @@ struct hb_job_s
+ #define HB_VCODEC_FFMPEG_NVENC_H265 0x00200000
+ #define HB_VCODEC_FFMPEG_VT_H264 0x00400000
+ #define HB_VCODEC_FFMPEG_VT_H265 0x00800000
+-#define HB_VCODEC_FFMPEG_MASK  (0x00000F0|HB_VCODEC_FFMPEG_VCE_H264|HB_VCODEC_FFMPEG_VCE_H265|HB_VCODEC_FFMPEG_NVENC_H264|HB_VCODEC_FFMPEG_NVENC_H265|HB_VCODEC_FFMPEG_VT_H264|HB_VCODEC_FFMPEG_VT_H265)
++#define HB_VCODEC_FFMPEG_MF_H264 0x01000000
++#define HB_VCODEC_FFMPEG_MF_H265 0x02000000
++#define HB_VCODEC_FFMPEG_MASK  (0x00000F0|HB_VCODEC_FFMPEG_VCE_H264|HB_VCODEC_FFMPEG_VCE_H265|HB_VCODEC_FFMPEG_NVENC_H264|HB_VCODEC_FFMPEG_NVENC_H265|HB_VCODEC_FFMPEG_VT_H264|HB_VCODEC_FFMPEG_VT_H265|HB_VCODEC_FFMPEG_MF_H264|HB_VCODEC_FFMPEG_MF_H265)
+ #define HB_VCODEC_QSV_H264     0x0000100
+ #define HB_VCODEC_QSV_H265_8BIT     0x0000200
+ #define HB_VCODEC_QSV_H265_10BIT    0x0000400
+@@ -534,14 +536,14 @@ struct hb_job_s
+ #define HB_VCODEC_X264         HB_VCODEC_X264_8BIT
+ #define HB_VCODEC_X264_10BIT   0x0020000
+ #define HB_VCODEC_X264_MASK    0x0030000
+-#define HB_VCODEC_H264_MASK    (HB_VCODEC_X264_MASK|HB_VCODEC_QSV_H264|HB_VCODEC_FFMPEG_VCE_H264|HB_VCODEC_FFMPEG_NVENC_H264|HB_VCODEC_FFMPEG_VT_H264)
++#define HB_VCODEC_H264_MASK    (HB_VCODEC_X264_MASK|HB_VCODEC_QSV_H264|HB_VCODEC_FFMPEG_VCE_H264|HB_VCODEC_FFMPEG_NVENC_H264|HB_VCODEC_FFMPEG_VT_H264|HB_VCODEC_FFMPEG_MF_H264)
+ #define HB_VCODEC_X265_8BIT    0x0001000
+ #define HB_VCODEC_X265         HB_VCODEC_X265_8BIT
+ #define HB_VCODEC_X265_10BIT   0x0002000
+ #define HB_VCODEC_X265_12BIT   0x0004000
+ #define HB_VCODEC_X265_16BIT   0x0008000
+ #define HB_VCODEC_X265_MASK    0x000F000
+-#define HB_VCODEC_H265_MASK    (HB_VCODEC_X265_MASK|HB_VCODEC_QSV_H265_MASK|HB_VCODEC_FFMPEG_VCE_H265|HB_VCODEC_FFMPEG_NVENC_H265|HB_VCODEC_FFMPEG_VT_H265)
++#define HB_VCODEC_H265_MASK    (HB_VCODEC_X265_MASK|HB_VCODEC_QSV_H265_MASK|HB_VCODEC_FFMPEG_VCE_H265|HB_VCODEC_FFMPEG_NVENC_H265|HB_VCODEC_FFMPEG_VT_H265|HB_VCODEC_FFMPEG_MF_H265)
+ 
+ /* define an invalid CQ value compatible with all CQ-capable codecs */
+ #define HB_INVALID_VIDEO_QUALITY (-1000.)
+diff --git a/libhb/muxavformat.c b/libhb/muxavformat.c
+index be5bf7b5d..3bea97bfd 100644
+--- a/libhb/muxavformat.c
++++ b/libhb/muxavformat.c
+@@ -267,6 +267,7 @@ static int avformatInit( hb_mux_object_t * m )
+         case HB_VCODEC_FFMPEG_VCE_H264:
+         case HB_VCODEC_FFMPEG_NVENC_H264:
+         case HB_VCODEC_FFMPEG_VT_H264:
++        case HB_VCODEC_FFMPEG_MF_H264:
+             track->st->codecpar->codec_id = AV_CODEC_ID_H264;
+             if (job->mux == HB_MUX_AV_MP4 && job->inline_parameter_sets)
+             {
+@@ -403,6 +404,7 @@ static int avformatInit( hb_mux_object_t * m )
+         case HB_VCODEC_FFMPEG_VCE_H265:
+         case HB_VCODEC_FFMPEG_NVENC_H265:
+         case HB_VCODEC_FFMPEG_VT_H265:
++        case HB_VCODEC_FFMPEG_MF_H265:
+             track->st->codecpar->codec_id  = AV_CODEC_ID_HEVC;
+             if (job->mux == HB_MUX_AV_MP4 && job->inline_parameter_sets)
+             {
+diff --git a/libhb/work.c b/libhb/work.c
+index 65c21eb5e..781885a59 100644
+--- a/libhb/work.c
++++ b/libhb/work.c
+@@ -297,6 +297,16 @@ hb_work_object_t* hb_video_encoder(hb_handle_t *h, int vcodec)
+             w->codec_param = AV_CODEC_ID_HEVC;
+             break;
+ #endif
++#ifdef _WIN32
++        case HB_VCODEC_FFMPEG_MF_H264:
++            w = hb_get_work(h, WORK_ENCAVCODEC);
++            w->codec_param = AV_CODEC_ID_H264;
++            break;
++        case HB_VCODEC_FFMPEG_MF_H265:
++            w = hb_get_work(h, WORK_ENCAVCODEC);
++            w->codec_param = AV_CODEC_ID_HEVC;
++            break;
++#endif
+ 
+         default:
+             hb_error("Unknown video codec (0x%x)", vcodec );
+@@ -539,6 +549,8 @@ void hb_display_job_info(hb_job_t *job)
+                 case HB_VCODEC_FFMPEG_NVENC_H265:
+                 case HB_VCODEC_FFMPEG_VT_H264:
+                 case HB_VCODEC_FFMPEG_VT_H265:
++                case HB_VCODEC_FFMPEG_MF_H264:
++                case HB_VCODEC_FFMPEG_MF_H265:
+                     hb_log("     + profile: %s", job->encoder_profile);
+                 default:
+                     break;
+@@ -563,6 +575,9 @@ void hb_display_job_info(hb_job_t *job)
+                 case HB_VCODEC_FFMPEG_VT_H264:
+                 // VT h.265 currently only supports auto level
+                 // case HB_VCODEC_FFMPEG_VT_H265:
++                // MF h.264/h.265 currently only supports auto level
++                // case HB_VCODEC_FFMPEG_MF_H264:
++                // case HB_VCODEC_FFMPEG_MF_H265:
+                     hb_log("     + level:   %s", job->encoder_level);
+                 default:
+                     break;
+-- 
+2.17.1
+

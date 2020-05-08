@@ -1,7 +1,7 @@
-From 1a34ac8e030173ca4910765da7620b9233441974 Mon Sep 17 00:00:00 2001
+From 626f6a667538260b571c329a707c29032c0c7d75 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Martin=20Storsj=C3=B6?= <martin@martin.st>
 Date: Sat, 11 Apr 2020 00:04:18 +0300
-Subject: [PATCH 1/4] gtk: Remove unnecessary linker flags when targeting mingw
+Subject: [PATCH 1/8] gtk: Remove unnecessary linker flags when targeting mingw
 
 The --export-dynamic flag is a no-op when targeting mingw; when used,
 binutils ld prints this warning:

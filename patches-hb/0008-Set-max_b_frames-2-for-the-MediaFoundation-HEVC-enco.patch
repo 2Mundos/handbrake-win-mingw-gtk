@@ -1,0 +1,33 @@
+From 71abe6c41a782f441f89f7c6ef67080b6af906be Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Martin=20Storsj=C3=B6?= <martin@martin.st>
+Date: Fri, 8 May 2020 15:31:37 +0300
+Subject: [PATCH 8/8] Set max_b_frames = 2 for the MediaFoundation HEVC encoder
+
+---
+ libhb/encavcodec.c | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/libhb/encavcodec.c b/libhb/encavcodec.c
+index 1fa355d64..2708d8b2c 100644
+--- a/libhb/encavcodec.c
++++ b/libhb/encavcodec.c
+@@ -622,6 +622,16 @@ int encavcodecInit( hb_work_object_t * w, hb_job_t * job )
+             else if (!strcasecmp(job->encoder_profile, "high"))
+                 context->profile = FF_PROFILE_H264_HIGH;
+         }
++
++    }
++
++    if (job->vcodec == HB_VCODEC_FFMPEG_MF_H265)
++    {
++        // The Qualcomm HEVC is buggy with bf=1; bf=2 is the recommended
++        // setting.
++        context->max_b_frames = 2;
++        // The MF encoder wrapper doesn't set has_b_frames yet.
++        context->has_b_frames = 2;
+     }
+ 
+     if (job->vcodec == HB_VCODEC_FFMPEG_MF_H264 ||
+-- 
+2.17.1
+

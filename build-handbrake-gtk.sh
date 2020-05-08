@@ -11,7 +11,7 @@ export PKG_CONFIG_LIBDIR=$PREFIX/lib/pkgconfig
 if [ ! -d HandBrake ]; then
 	git clone https://github.com/HandBrake/HandBrake.git
 	cd HandBrake
-	git checkout b0a2c68ee60bd3d15889fa41cf1879c276a9e1b8
+	git checkout ab3ee6e7df7ce2da4effacf1b1420edadaf04ba9
 	git am -3 $PATCHES/*.patch
 else
 	cd HandBrake
