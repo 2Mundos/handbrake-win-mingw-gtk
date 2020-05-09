@@ -1,59 +1,79 @@
-From be0d3f91ab0cf60af09421505a946f48ce5bfc62 Mon Sep 17 00:00:00 2001
+From ebec2e88df750cd135936b7f4f1f87fe7f52f08a Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Martin=20Storsj=C3=B6?= <martin@martin.st>
 Date: Fri, 24 Apr 2020 15:21:58 +0300
-Subject: [PATCH 2/8] contrib: ffmpeg: Patch and enable the MediaFoundation
+Subject: [PATCH 2/4] contrib: ffmpeg: Patch and enable the MediaFoundation
  encoder wrappers
 
 ---
- contrib/ffmpeg/A19-mf-encoder.patch           | 2162 +++++++++++++++++
- contrib/ffmpeg/A20-mf-encoder-extradata.patch |   63 +
- contrib/ffmpeg/A21-mf-encoder-b-frames.patch  |   29 +
+ contrib/ffmpeg/A19-mf-encoder.patch           | 2193 +++++++++++++++++
+ .../A20-movenc-missing-hevc-extradata.patch   |  117 +
  contrib/ffmpeg/module.defs                    |    4 +-
  gtk/configure.ac                              |    2 +-
  libhb/module.defs                             |    2 +-
  test/module.defs                              |    2 +-
- 7 files changed, 2260 insertions(+), 4 deletions(-)
+ 6 files changed, 2316 insertions(+), 4 deletions(-)
  create mode 100644 contrib/ffmpeg/A19-mf-encoder.patch
- create mode 100644 contrib/ffmpeg/A20-mf-encoder-extradata.patch
- create mode 100644 contrib/ffmpeg/A21-mf-encoder-b-frames.patch
+ create mode 100644 contrib/ffmpeg/A20-movenc-missing-hevc-extradata.patch
 
 diff --git a/contrib/ffmpeg/A19-mf-encoder.patch b/contrib/ffmpeg/A19-mf-encoder.patch
 new file mode 100644
-index 000000000..8ec8a6746
+index 000000000..fa511938e
 --- /dev/null
 +++ b/contrib/ffmpeg/A19-mf-encoder.patch
-@@ -0,0 +1,2162 @@
-+From 7ce2fc7eb904a9d1f7654321b9bf4c8f03972322 Mon Sep 17 00:00:00 2001
+@@ -0,0 +1,2193 @@
++From 17bffb20994d9150bc49c20ecba2527e8b9d4d79 Mon Sep 17 00:00:00 2001
 +From: wm4 <nfxjfg@googlemail.com>
 +Date: Tue, 4 Apr 2017 07:45:41 +0200
-+Subject: [PATCH 1/3] avcodec: Add MediaFoundation encoder wrapper
++Subject: [PATCH 1/2] avcodec: Add MediaFoundation encoder wrapper
 +MIME-Version: 1.0
 +Content-Type: text/plain; charset=UTF-8
 +Content-Transfer-Encoding: 8bit
 +
 +This contains encoder wrappers for H264, HEVC, AAC, AC3 and MP3.
 +
-+This contains changes done by Paweł Wegner <pawel.wegner95@gmail.com>
-+on top of an original patch by wm4 <nfxjfg@googlemail.com>.
-+(The original patch supported both encoding and decoding; this only
-+includes encoding).
++This is based on top of an original patch by wm4
++<nfxjfg@googlemail.com>. The original patch supported both encoding
++and decoding, but this patch only includes encoding.
++
++The patch contains further changes by Paweł Wegner
++<pawel.wegner95@gmail.com> (primarily for splitting out the encoding
++parts of the original patch) and further cleanup, build compatibility
++fixes and tweaks for use with Qualcomm encoders by Martin Storsjö.
++---
++This allows access to the HW video encoder on Windows on ARM64
++on Qualcomm platforms. However, to actually use that, one has to
++manually choose nv12 as input pixel format, otherwise the encoder
++format negotiation fails.
++
++I've tried to read up on the feedback this patch got the earlier
++times it was posted and address those issues. In particular,
++this is enabled automatically if suitable headers are available.
++The built binary still runs on Vista (even if the required MF
++functionality isn't available there).
++
++Building succeeds with MSVC, old and new mingw-w64 toolchains,
++and isn't detected nor enabled on mingw.org toolchains. The configure
++check looks for one of the API details used; mingw-w64 versions
++from before that feature was added won't try to build the code,
++while newer ones should have enough features to build it successfully.
 +---
 + configure              |   11 +
 + libavcodec/Makefile    |    1 +
 + libavcodec/allcodecs.c |    5 +
 + libavcodec/mf_utils.c  |  677 +++++++++++++++++++++++
 + libavcodec/mf_utils.h  |  138 +++++
-+ libavcodec/mfenc.c     | 1172 ++++++++++++++++++++++++++++++++++++++++
-+ 6 files changed, 2004 insertions(+)
++ libavcodec/mfenc.c     | 1181 ++++++++++++++++++++++++++++++++++++++++
++ libavcodec/version.h   |    2 +-
++ 7 files changed, 2014 insertions(+), 1 deletion(-)
 + create mode 100644 libavcodec/mf_utils.c
 + create mode 100644 libavcodec/mf_utils.h
 + create mode 100644 libavcodec/mfenc.c
 +
 +diff --git a/configure b/configure
-+index 3fb8f3521d..1a27d15b26 100755
++index e7162dbc56..a52d1ebed5 100755
 +--- a/configure
 ++++ b/configure
-+@@ -301,6 +301,7 @@ External library support:
++@@ -304,6 +304,7 @@ External library support:
 +   --enable-mbedtls         enable mbedTLS, needed for https support
 +                            if openssl, gnutls or libtls is not used [no]
 +   --enable-mediacodec      enable Android MediaCodec support [no]
@@ -61,7 +81,7 @@ index 000000000..8ec8a6746
 +   --enable-libmysofa       enable libmysofa, needed for sofalizer filter [no]
 +   --enable-openal          enable OpenAL 1.1 capture support [no]
 +   --enable-opencl          enable OpenCL processing [no]
-+@@ -1699,6 +1700,7 @@ EXTERNAL_AUTODETECT_LIBRARY_LIST="
++@@ -1704,6 +1705,7 @@ EXTERNAL_AUTODETECT_LIBRARY_LIST="
 +     libxcb_shape
 +     libxcb_xfixes
 +     lzma
@@ -69,7 +89,7 @@ index 000000000..8ec8a6746
 +     schannel
 +     sdl2
 +     securetransport
-+@@ -2985,6 +2987,8 @@ wmv3_vaapi_hwaccel_select="vc1_vaapi_hwaccel"
++@@ -3013,6 +3015,8 @@ wmv3_vaapi_hwaccel_select="vc1_vaapi_hwaccel"
 + wmv3_vdpau_hwaccel_select="vc1_vdpau_hwaccel"
 + 
 + # hardware-accelerated codecs
@@ -78,7 +98,7 @@ index 000000000..8ec8a6746
 + omx_deps="libdl pthreads"
 + omx_rpi_select="omx"
 + qsv_deps="libmfx"
-+@@ -3007,6 +3011,8 @@ nvenc_deps="ffnvcodec"
++@@ -3037,6 +3041,8 @@ nvenc_deps="ffnvcodec"
 + nvenc_deps_any="libdl LoadLibrary"
 + nvenc_encoder_deps="nvenc"
 + 
@@ -87,7 +107,7 @@ index 000000000..8ec8a6746
 + h263_v4l2m2m_decoder_deps="v4l2_m2m h263_v4l2_m2m"
 + h263_v4l2m2m_encoder_deps="v4l2_m2m h263_v4l2_m2m"
 + h264_amf_encoder_deps="amf"
-+@@ -3015,6 +3021,7 @@ h264_cuvid_decoder_deps="cuvid"
++@@ -3045,6 +3051,7 @@ h264_cuvid_decoder_deps="cuvid"
 + h264_cuvid_decoder_select="h264_mp4toannexb_bsf"
 + h264_mediacodec_decoder_deps="mediacodec"
 + h264_mediacodec_decoder_select="h264_mp4toannexb_bsf h264_parser"
@@ -95,15 +115,15 @@ index 000000000..8ec8a6746
 + h264_mmal_decoder_deps="mmal"
 + h264_nvenc_encoder_deps="nvenc"
 + h264_omx_encoder_deps="omx"
-+@@ -3031,6 +3038,7 @@ hevc_cuvid_decoder_deps="cuvid"
++@@ -3061,6 +3068,7 @@ hevc_cuvid_decoder_deps="cuvid"
 + hevc_cuvid_decoder_select="hevc_mp4toannexb_bsf"
 + hevc_mediacodec_decoder_deps="mediacodec"
 + hevc_mediacodec_decoder_select="hevc_mp4toannexb_bsf hevc_parser"
 ++hevc_mf_encoder_deps="mf"
 + hevc_nvenc_encoder_deps="nvenc"
-+ hevc_qsv_decoder_select="hevc_mp4toannexb_bsf hevc_parser qsvdec"
++ hevc_qsv_decoder_select="hevc_mp4toannexb_bsf qsvdec"
 + hevc_qsv_encoder_select="hevcparse qsvenc"
-+@@ -3046,6 +3054,7 @@ mjpeg_qsv_encoder_deps="libmfx"
++@@ -3077,6 +3085,7 @@ mjpeg_qsv_encoder_deps="libmfx"
 + mjpeg_qsv_encoder_select="qsvenc"
 + mjpeg_vaapi_encoder_deps="VAEncPictureParameterBufferJPEG"
 + mjpeg_vaapi_encoder_select="cbs_jpeg jpegtables vaapi_encode"
@@ -111,7 +131,7 @@ index 000000000..8ec8a6746
 + mpeg1_cuvid_decoder_deps="cuvid"
 + mpeg1_v4l2m2m_decoder_deps="v4l2_m2m mpeg1_v4l2_m2m"
 + mpeg2_crystalhd_decoder_select="crystalhd"
-+@@ -6022,6 +6031,7 @@ check_headers io.h
++@@ -6099,6 +6108,7 @@ check_headers io.h
 + check_headers linux/perf_event.h
 + check_headers libcrystalhd/libcrystalhd_if.h
 + check_headers malloc.h
@@ -119,19 +139,19 @@ index 000000000..8ec8a6746
 + check_headers net/udplite.h
 + check_headers poll.h
 + check_headers sys/param.h
-+@@ -6084,6 +6094,7 @@ check_type "windows.h dxva.h" "DXVA_PicParams_VP9" -DWINAPI_FAMILY=WINAPI_FAMILY
++@@ -6161,6 +6171,7 @@ check_type "windows.h dxva.h" "DXVA_PicParams_VP9" -DWINAPI_FAMILY=WINAPI_FAMILY
 + check_type "windows.h d3d11.h" "ID3D11VideoDecoder"
 + check_type "windows.h d3d11.h" "ID3D11VideoContext"
 + check_type "d3d9.h dxva2api.h" DXVA2_ConfigPictureDecode -D_WIN32_WINNT=0x0602
 ++check_func_headers mfapi.h MFCreateAlignedMemoryBuffer -lmfplat
 + 
 + check_type "vdpau/vdpau.h" "VdpPictureInfoHEVC"
-+ 
++ check_type "vdpau/vdpau.h" "VdpPictureInfoVP9"
 +diff --git a/libavcodec/Makefile b/libavcodec/Makefile
-+index 3cd73fbcc6..c1ee8ab4df 100644
++index 38f6f07680..1bb08e11ad 100644
 +--- a/libavcodec/Makefile
 ++++ b/libavcodec/Makefile
-+@@ -1011,6 +1011,7 @@ OBJS-$(CONFIG_LIBXAVS_ENCODER)            += libxavs.o
++@@ -1033,6 +1033,7 @@ OBJS-$(CONFIG_LIBXAVS_ENCODER)            += libxavs.o
 + OBJS-$(CONFIG_LIBXAVS2_ENCODER)           += libxavs2.o
 + OBJS-$(CONFIG_LIBXVID_ENCODER)            += libxvid.o
 + OBJS-$(CONFIG_LIBZVBI_TELETEXT_DECODER)   += libzvbi-teletextdec.o ass.o
@@ -140,10 +160,10 @@ index 000000000..8ec8a6746
 + # parsers
 + OBJS-$(CONFIG_AAC_LATM_PARSER)         += latm_parser.o
 +diff --git a/libavcodec/allcodecs.c b/libavcodec/allcodecs.c
-+index d2f9a39ce5..540ab277d1 100644
++index 54d40ebdbc..8473e5a023 100644
 +--- a/libavcodec/allcodecs.c
 ++++ b/libavcodec/allcodecs.c
-+@@ -661,7 +661,9 @@ extern AVCodec ff_xsub_decoder;
++@@ -676,7 +676,9 @@ extern AVCodec ff_xsub_decoder;
 + /* external libraries */
 + extern AVCodec ff_aac_at_encoder;
 + extern AVCodec ff_aac_at_decoder;
@@ -153,7 +173,7 @@ index 000000000..8ec8a6746
 + extern AVCodec ff_adpcm_ima_qt_at_decoder;
 + extern AVCodec ff_alac_at_encoder;
 + extern AVCodec ff_alac_at_decoder;
-+@@ -673,6 +675,7 @@ extern AVCodec ff_ilbc_at_decoder;
++@@ -688,6 +690,7 @@ extern AVCodec ff_ilbc_at_decoder;
 + extern AVCodec ff_mp1_at_decoder;
 + extern AVCodec ff_mp2_at_decoder;
 + extern AVCodec ff_mp3_at_decoder;
@@ -161,7 +181,7 @@ index 000000000..8ec8a6746
 + extern AVCodec ff_pcm_alaw_at_encoder;
 + extern AVCodec ff_pcm_alaw_at_decoder;
 + extern AVCodec ff_pcm_mulaw_at_encoder;
-+@@ -741,6 +744,7 @@ extern AVCodec ff_libopenh264_encoder;
++@@ -757,6 +760,7 @@ extern AVCodec ff_libopenh264_encoder;
 + extern AVCodec ff_libopenh264_decoder;
 + extern AVCodec ff_h264_amf_encoder;
 + extern AVCodec ff_h264_cuvid_decoder;
@@ -169,7 +189,7 @@ index 000000000..8ec8a6746
 + extern AVCodec ff_h264_nvenc_encoder;
 + extern AVCodec ff_h264_omx_encoder;
 + extern AVCodec ff_h264_qsv_encoder;
-+@@ -755,6 +759,7 @@ extern AVCodec ff_nvenc_hevc_encoder;
++@@ -771,6 +775,7 @@ extern AVCodec ff_nvenc_hevc_encoder;
 + extern AVCodec ff_hevc_amf_encoder;
 + extern AVCodec ff_hevc_cuvid_decoder;
 + extern AVCodec ff_hevc_mediacodec_decoder;
@@ -1006,10 +1026,10 @@ index 000000000..8ec8a6746
 ++#endif
 +diff --git a/libavcodec/mfenc.c b/libavcodec/mfenc.c
 +new file mode 100644
-+index 0000000000..53bddd9a21
++index 0000000000..2ac7a859c1
 +--- /dev/null
 ++++ b/libavcodec/mfenc.c
-+@@ -0,0 +1,1172 @@
++@@ -0,0 +1,1181 @@
 ++/*
 ++ * This file is part of FFmpeg.
 ++ *
@@ -1037,6 +1057,7 @@ index 000000000..8ec8a6746
 ++#include "mf_utils.h"
 ++#include "libavutil/imgutils.h"
 ++#include "libavutil/opt.h"
+++#include "libavutil/time.h"
 ++
 ++// Include after mf_utils.h due to Windows include mess.
 ++#include "mpeg4audio.h"
@@ -1054,9 +1075,7 @@ index 000000000..8ec8a6746
 ++    int draining, draining_done;
 ++    int sample_sent;
 ++    int async_need_input, async_have_output, async_marker;
-++    int lavc_init_done;
-++    uint8_t *send_extradata;
-++    int send_extradata_size;
+++    int64_t reorder_delay;
 ++    ICodecAPI *codec_api;
 ++    AVBSFContext *bsfc;
 ++    // set by AVOption
@@ -1190,7 +1209,6 @@ index 000000000..8ec8a6746
 ++
 ++static int mf_encv_output_type_get(AVCodecContext *avctx, IMFMediaType *type)
 ++{
-++    MFContext *c = avctx->priv_data;
 ++    HRESULT hr;
 ++    UINT32 sz;
 ++
@@ -1204,18 +1222,9 @@ index 000000000..8ec8a6746
 ++            av_free(extradata);
 ++            return AVERROR_EXTERNAL;
 ++        }
-++        if (c->lavc_init_done) {
-++            // At least the Intel QSV h264 MFT sets up extradata when the first
-++            // frame is encoded, and after the AVCodecContext was opened.
-++            // Send it as side-data with the next packet.
-++            av_freep(&c->send_extradata);
-++            c->send_extradata = extradata;
-++            c->send_extradata_size = sz;
-++        } else {
-++            av_freep(&avctx->extradata);
-++            avctx->extradata = extradata;
-++            avctx->extradata_size = sz;
-++        }
+++        av_freep(&avctx->extradata);
+++        avctx->extradata = extradata;
+++        avctx->extradata_size = sz;
 ++    }
 ++
 ++    return 0;
@@ -1291,8 +1300,17 @@ index 000000000..8ec8a6746
 ++        avpkt->flags |= AV_PKT_FLAG_KEY;
 ++
 ++    hr = IMFAttributes_GetUINT64(sample, &MFSampleExtension_DecodeTimestamp, &t);
-++    if (!FAILED(hr))
+++    if (!FAILED(hr)) {
 ++        avpkt->dts = mf_from_mf_time(avctx, t);
+++        // At least on Qualcomm's HEVC encoder, the output dts starts from
+++        // the input pts of the first frame, while the output pts is shifted
+++        // forward. Therefore, shift the output values back so that the output
+++        // pts matches the input.
+++        if (c->reorder_delay == AV_NOPTS_VALUE)
+++            c->reorder_delay = avpkt->pts - avpkt->dts;
+++        avpkt->dts -= c->reorder_delay;
+++        avpkt->pts -= c->reorder_delay;
+++    }
 ++
 ++    return 0;
 ++}
@@ -1516,7 +1534,6 @@ index 000000000..8ec8a6746
 ++
 ++static int mf_receive_packet(AVCodecContext *avctx, AVPacket *avpkt)
 ++{
-++    MFContext *c = avctx->priv_data;
 ++    IMFSample *sample;
 ++    int ret;
 ++
@@ -1526,18 +1543,6 @@ index 000000000..8ec8a6746
 ++
 ++    ret = mf_sample_to_avpacket(avctx, sample, avpkt);
 ++    IMFSample_Release(sample);
-++
-++    if (c->send_extradata) {
-++        ret = av_packet_add_side_data(avpkt, AV_PKT_DATA_NEW_EXTRADATA,
-++                                      c->send_extradata,
-++                                      c->send_extradata_size);
-++        if (ret < 0) {
-++            av_log(avctx, AV_LOG_ERROR, "Failed to add extradata: %i\n", ret);
-++            return ret;
-++        }
-++        c->send_extradata = NULL;
-++        c->send_extradata_size = 0;
-++    }
 ++
 ++    return ret;
 ++}
@@ -1664,13 +1669,11 @@ index 000000000..8ec8a6746
 ++static int mf_encv_output_adjust(AVCodecContext *avctx, IMFMediaType *type)
 ++{
 ++    MFContext *c = avctx->priv_data;
-++    AVRational frame_rate = av_inv_q(avctx->time_base);
-++    frame_rate.den *= avctx->ticks_per_frame;
 ++
 ++    ff_MFSetAttributeSize((IMFAttributes *)type, &MF_MT_FRAME_SIZE, avctx->width, avctx->height);
 ++    IMFAttributes_SetUINT32(type, &MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
 ++
-++    ff_MFSetAttributeRatio((IMFAttributes *)type, &MF_MT_FRAME_RATE, frame_rate.num, frame_rate.den);
+++    ff_MFSetAttributeRatio((IMFAttributes *)type, &MF_MT_FRAME_RATE, avctx->framerate.num, avctx->framerate.den);
 ++
 ++    // (MS HEVC supports eAVEncH265VProfile_Main_420_8 only.)
 ++    if (avctx->codec_id == AV_CODEC_ID_H264) {
@@ -1699,8 +1702,12 @@ index 000000000..8ec8a6746
 ++        if (c->opt_enc_quality >= 0)
 ++            ICodecAPI_SetValue(c->codec_api, &ff_CODECAPI_AVEncCommonQuality, FF_VAL_VT_UI4(c->opt_enc_quality));
 ++
-++        if (avctx->max_b_frames > 0)
-++            ICodecAPI_SetValue(c->codec_api, &ff_CODECAPI_AVEncMPVDefaultBPictureCount, FF_VAL_VT_UI4(avctx->max_b_frames));
+++        // Always set the number of b-frames. Qualcomm's HEVC encoder defaults
+++        // this to 1, and that setting is buggy with many of the rate control
+++        // modes. (0 or 2 b-frames works fine with most rate control modes,
+++        // but 2 seems buggy with the u_vbr mode.)
+++        ICodecAPI_SetValue(c->codec_api, &ff_CODECAPI_AVEncMPVDefaultBPictureCount, FF_VAL_VT_UI4(avctx->max_b_frames));
+++        avctx->has_b_frames = avctx->max_b_frames > 1 ? 1 : 0;
 ++
 ++        ICodecAPI_SetValue(c->codec_api, &ff_CODECAPI_AVEncH264CABACEnable, FF_VAL_VT_BOOL(1));
 ++    }
@@ -2050,6 +2057,7 @@ index 000000000..8ec8a6746
 ++
 ++    c->is_audio = avctx->codec_type == AVMEDIA_TYPE_AUDIO;
 ++    c->is_video = !c->is_audio;
+++    c->reorder_delay = AV_NOPTS_VALUE;
 ++
 ++    if (c->is_video && c->opt_enc_hw)
 ++        use_hw = 1;
@@ -2096,7 +2104,31 @@ index 000000000..8ec8a6746
 ++        return AVERROR_EXTERNAL;
 ++    }
 ++
-++    c->lavc_init_done = 1;
+++    if (avctx->flags & AV_CODEC_FLAG_GLOBAL_HEADER && c->async_events &&
+++        c->is_video && !avctx->extradata) {
+++        int sleep = 10000, total = 0;
+++        av_log(avctx, AV_LOG_VERBOSE, "Awaiting extradata\n");
+++        while (total < 70*1000) {
+++            // The Qualcomm H264 encoder doesn't provide extradata immediately,
+++            // but it becomes available soon after init (without any waitable
+++            // event). In practice, it's available after less than 10 ms, but
+++            // wait for up to 70 ms before giving up.
+++            // Some encoders (Qualcomm's HEVC encoder, some versions of
+++            // the QSV H264 encoder at least) don't provide extradata this way
+++            // at all, not even after encoding a frame - it's only available
+++            // prepended to frames.
+++            av_usleep(sleep);
+++            total += sleep;
+++            mf_output_type_get(avctx);
+++            if (avctx->extradata)
+++                break;
+++            sleep *= 2;
+++        }
+++        av_log(avctx, AV_LOG_VERBOSE,
+++               "%s extradata in %d ms\n",
+++               avctx->extradata ? "Got" : "Didn't get",
+++               total / 1000);
+++    }
 ++
 ++    return 0;
 ++}
@@ -2117,9 +2149,6 @@ index 000000000..8ec8a6746
 ++
 ++    av_freep(&avctx->extradata);
 ++    avctx->extradata_size = 0;
-++
-++    av_freep(&c->send_extradata);
-++    c->send_extradata_size = 0;
 ++
 ++    return 0;
 ++}
@@ -2185,107 +2214,126 @@ index 000000000..8ec8a6746
 +-- 
 +2.17.1
 +
-diff --git a/contrib/ffmpeg/A20-mf-encoder-extradata.patch b/contrib/ffmpeg/A20-mf-encoder-extradata.patch
+diff --git a/contrib/ffmpeg/A20-movenc-missing-hevc-extradata.patch b/contrib/ffmpeg/A20-movenc-missing-hevc-extradata.patch
 new file mode 100644
-index 000000000..7ad17baaa
+index 000000000..08b0327c1
 --- /dev/null
-+++ b/contrib/ffmpeg/A20-mf-encoder-extradata.patch
-@@ -0,0 +1,63 @@
-+From e05b0aee687f7a7d1f195130d5924b5704986e06 Mon Sep 17 00:00:00 2001
++++ b/contrib/ffmpeg/A20-movenc-missing-hevc-extradata.patch
+@@ -0,0 +1,117 @@
++From 16b626c40be84bcf3a657c16b00abee0ddde1b6a Mon Sep 17 00:00:00 2001
 +From: =?UTF-8?q?Martin=20Storsj=C3=B6?= <martin@martin.st>
-+Date: Sat, 18 Apr 2020 23:59:22 +0300
-+Subject: [PATCH 2/3] mfenc: Await extradata at the end of the init function,
-+ if not available immediately
++Date: Fri, 8 May 2020 14:21:32 +0300
++Subject: [PATCH 2/2] movenc: Try to extract extradata from the first HEVC
++ packet, if none set
 +
-+The Qualcomm H264 encoder doesn't provide extradata immediately,
-+but a short while after starting, the extradata is available (but
-+I haven't seen any signal that one can wait for).
-+
-+The Qualcomm HEVC encoder, on the other hand, doesn't seem to export
-+extradata (MF_MT_MPEG_SEQUENCE_HEADER) at all - that can be an issue
-+for use with muxers that require it.
++This fixes the generated files when using encoders that refuse to
++produce extradata (like Qualcomm's HEVC encoder via MediaFoundation).
++This only works for cases where the moov hasn't already been written
++(e.g. when not writing fragmented mp4 with empty_moov, unless using
++the delay_moov option).
 +---
-+ libavcodec/mfenc.c | 25 +++++++++++++++++++++++++
-+ 1 file changed, 25 insertions(+)
++ libavformat/hevc.c   | 61 ++++++++++++++++++++++++++++++++++++++++++++
++ libavformat/hevc.h   |  3 +++
++ libavformat/movenc.c |  5 ++++
++ 3 files changed, 69 insertions(+)
 +
-+diff --git a/libavcodec/mfenc.c b/libavcodec/mfenc.c
-+index 53bddd9a21..0a05f04b55 100644
-+--- a/libavcodec/mfenc.c
-++++ b/libavcodec/mfenc.c
-+@@ -25,6 +25,7 @@
-+ #include "mf_utils.h"
-+ #include "libavutil/imgutils.h"
-+ #include "libavutil/opt.h"
-++#include "libavutil/time.h"
-+ 
-+ // Include after mf_utils.h due to Windows include mess.
-+ #include "mpeg4audio.h"
-+@@ -1084,6 +1085,30 @@ static int mf_init(AVCodecContext *avctx)
-+         return AVERROR_EXTERNAL;
-+     }
-+ 
-++    if (avctx->flags & AV_CODEC_FLAG_GLOBAL_HEADER && c->async_events &&
-++        c->is_video && !avctx->extradata) {
-++        int sleep = 5000;
-++        av_log(avctx, AV_LOG_VERBOSE, "Awaiting extradata\n");
-++        while (sleep < 500*1000) {
-++            // The Qualcomm video encoder doesn't provide extradata immediately,
-++            // but by waiting for a small amount of time (in practice, it's
-++            // available after less than 1 ms, but start out by sleeping 5 ms).
-++            // Prefer awaiting it here, instead of trying to pass it as
-++            // side data later, as having it available immediately is compatible
-++            // with more consumers.
-++            // There doesn't seem to be any event we can wait for to know
-++            // exactly when it's available - in particular, running one round
-++            // of mf_wait_events isn't enough.
-++            av_usleep(sleep);
-++            mf_output_type_get(avctx);
-++            if (avctx->extradata)
-++                break;
-++            sleep *= 2;
-++        }
-++        av_log(avctx, AV_LOG_VERBOSE,
-++               "%s extradata\n", avctx->extradata ? "Got" : "Didn't get");
++diff --git a/libavformat/hevc.c b/libavformat/hevc.c
++index f621cb2f19..2c9d8f1af9 100644
++--- a/libavformat/hevc.c
+++++ b/libavformat/hevc.c
++@@ -1125,3 +1125,64 @@ end:
++     av_free(start);
++     return ret;
++ }
+++
+++int ff_hevc_extract_parameter_sets(const uint8_t *buf_in, int size_in,
+++                                   uint8_t **buf_out, int *size_out)
+++{
+++    int ret = 0;
+++    uint8_t *buf, *end, *start = NULL;
+++    AVIOContext *pb = NULL;
+++
+++    if (size_in < 6) {
+++        /* We can't write a valid hvcC from the provided data */
+++        ret = AVERROR_INVALIDDATA;
+++        goto end;
+++    } else if (!(AV_RB24(buf_in) == 1 || AV_RB32(buf_in) == 1)) {
+++        /* Not a valid Annex B start code prefix */
+++        ret = AVERROR_INVALIDDATA;
+++        goto end;
 ++    }
 ++
-+     c->lavc_init_done = 1;
+++    ret = ff_avc_parse_nal_units_buf(buf_in, &start, &size_in);
+++    if (ret < 0)
+++        goto end;
+++
+++    ret = avio_open_dyn_buf(&pb);
+++    if (ret < 0)
+++        return ret;
+++
+++    buf = start;
+++    end = start + size_in;
+++
+++    while (end - buf > 4) {
+++        uint32_t len = FFMIN(AV_RB32(buf), end - buf - 4);
+++        uint8_t type = (buf[4] >> 1) & 0x3f;
+++
+++        buf += 4;
+++
+++        switch (type) {
+++        case HEVC_NAL_VPS:
+++        case HEVC_NAL_SPS:
+++        case HEVC_NAL_PPS:
+++        case HEVC_NAL_SEI_PREFIX:
+++        case HEVC_NAL_SEI_SUFFIX:
+++            avio_wb32(pb, 1);
+++            avio_write(pb, buf, len);
+++            break;
+++        default:
+++            break;
+++        }
+++
+++        buf += len;
+++    }
+++
+++end:
+++    if (pb) {
+++        *size_out = avio_close_dyn_buf(pb, buf_out);
+++        if (ret < 0)
+++            av_freep(buf_out);
+++    }
+++
+++    av_free(start);
+++    return ret;
+++}
++diff --git a/libavformat/hevc.h b/libavformat/hevc.h
++index 0f56325c1c..7c485dbecc 100644
++--- a/libavformat/hevc.h
+++++ b/libavformat/hevc.h
++@@ -96,4 +96,7 @@ int ff_hevc_annexb2mp4_buf(const uint8_t *buf_in, uint8_t **buf_out,
++ int ff_isom_write_hvcc(AVIOContext *pb, const uint8_t *data,
++                        int size, int ps_array_completeness);
 + 
-+     return 0;
-+-- 
-+2.17.1
-+
-diff --git a/contrib/ffmpeg/A21-mf-encoder-b-frames.patch b/contrib/ffmpeg/A21-mf-encoder-b-frames.patch
-new file mode 100644
-index 000000000..2554d231f
---- /dev/null
-+++ b/contrib/ffmpeg/A21-mf-encoder-b-frames.patch
-@@ -0,0 +1,29 @@
-+From ce31dcadc2a21c1acd356839b9ee5d3b32635e6e Mon Sep 17 00:00:00 2001
-+From: =?UTF-8?q?Martin=20Storsj=C3=B6?= <martin@martin.st>
-+Date: Tue, 21 Apr 2020 23:39:50 +0300
-+Subject: [PATCH 3/3] mfenc: Always set CODECAPI_AVEncMPVDefaultBPictureCount
-+
-+On the Qualcomm HEVC encoder, it's set to 1 by default, and it seems
-+to be buggy in that state (every other returned packet is zero bytes),
-+so explicitly set it to 0 by default. (It works fine if set to 0 or 2.)
-+---
-+ libavcodec/mfenc.c | 3 +--
-+ 1 file changed, 1 insertion(+), 2 deletions(-)
-+
-+diff --git a/libavcodec/mfenc.c b/libavcodec/mfenc.c
-+index 0a05f04b55..c7038e859b 100644
-+--- a/libavcodec/mfenc.c
-++++ b/libavcodec/mfenc.c
-+@@ -688,8 +688,7 @@ static int mf_encv_output_adjust(AVCodecContext *avctx, IMFMediaType *type)
-+         if (c->opt_enc_quality >= 0)
-+             ICodecAPI_SetValue(c->codec_api, &ff_CODECAPI_AVEncCommonQuality, FF_VAL_VT_UI4(c->opt_enc_quality));
-+ 
-+-        if (avctx->max_b_frames > 0)
-+-            ICodecAPI_SetValue(c->codec_api, &ff_CODECAPI_AVEncMPVDefaultBPictureCount, FF_VAL_VT_UI4(avctx->max_b_frames));
-++        ICodecAPI_SetValue(c->codec_api, &ff_CODECAPI_AVEncMPVDefaultBPictureCount, FF_VAL_VT_UI4(avctx->max_b_frames));
-+ 
-+         ICodecAPI_SetValue(c->codec_api, &ff_CODECAPI_AVEncH264CABACEnable, FF_VAL_VT_BOOL(1));
+++int ff_hevc_extract_parameter_sets(const uint8_t *buf_in, int size_in,
+++                                   uint8_t **buf_out, int *size_out);
+++
++ #endif /* AVFORMAT_HEVC_H */
++diff --git a/libavformat/movenc.c b/libavformat/movenc.c
++index 32e8109268..cd91abfc79 100644
++--- a/libavformat/movenc.c
+++++ b/libavformat/movenc.c
++@@ -5503,6 +5503,11 @@ int ff_mov_write_packet(AVFormatContext *s, AVPacket *pkt)
++         memcpy(trk->vos_data, par->extradata, trk->vos_len);
++         memset(trk->vos_data + trk->vos_len, 0, AV_INPUT_BUFFER_PADDING_SIZE);
 +     }
+++    if (trk->vos_len == 0 && par->codec_id == AV_CODEC_ID_HEVC) {
+++        ret = ff_hevc_extract_parameter_sets(pkt->data, pkt->size, &trk->vos_data, &trk->vos_len);
+++        if (ret < 0)
+++            goto err;
+++    }
++ 
++     if (par->codec_id == AV_CODEC_ID_AAC && pkt->size > 2 &&
++         (AV_RB16(pkt->data) & 0xfff0) == 0xfff0) {
 +-- 
 +2.17.1
 +
