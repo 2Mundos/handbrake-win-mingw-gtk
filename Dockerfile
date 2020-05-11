@@ -34,5 +34,7 @@ COPY strip-install.sh ./
 RUN cd build-$ARCH && \
     ../strip-install.sh
 
+RUN cp build-$ARCH/HandBrake/build/HandBrakeCLI.exe build-$ARCH/prefix/bin
+
 RUN cd build-$ARCH/prefix && \
     zip -9r /ghb-$ARCH.zip *
