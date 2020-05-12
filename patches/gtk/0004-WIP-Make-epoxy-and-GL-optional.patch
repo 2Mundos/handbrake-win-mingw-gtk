@@ -1,0 +1,473 @@
+From b14bc046c24f3497274dd4cc49265f05c0c98bc1 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Martin=20Storsj=C3=B6?= <martin@martin.st>
+Date: Tue, 12 May 2020 23:46:54 +0300
+Subject: [PATCH 4/4] WIP: Make epoxy and GL optional
+
+Windows on ARM doesn't have OpenGL at all.
+---
+ config.h.meson                 |  3 +++
+ demos/gtk-demo/meson.build     |  7 ++++++-
+ gdk/gdk-private.c              |  5 +++++
+ gdk/gdkconfig.h.meson          |  1 +
+ gdk/gdkwindow.c                | 12 ++++++++++++
+ gdk/meson.build                | 10 ++++++++--
+ gdk/win32/gdkdisplay-win32.c   |  2 ++
+ gdk/win32/gdkevents-win32.c    |  4 ++++
+ gdk/win32/gdkglcontext-win32.h |  6 ++++++
+ gdk/win32/gdkwindow-win32.c    | 10 ++++++++++
+ gdk/win32/meson.build          |  7 ++++++-
+ gtk/gentypefuncs.py            |  4 ++++
+ gtk/meson.build                |  7 ++++++-
+ meson.build                    | 11 ++++++++---
+ tests/meson.build              |  9 +++++++--
+ 15 files changed, 88 insertions(+), 10 deletions(-)
+
+diff --git a/config.h.meson b/config.h.meson
+index 480f5689eb..6260450bc7 100644
+--- a/config.h.meson
++++ b/config.h.meson
+@@ -38,6 +38,9 @@
+ /* Define to 1 if you have the <dlfcn.h> header file. */
+ #mesondefine HAVE_DLFCN_H
+ 
++/* defines whether we have epoxy */
++#mesondefine HAVE_EPOXY
++
+ /* Define to 1 if you have the `exp2' function. */
+ #mesondefine HAVE_EXP2
+ 
+diff --git a/demos/gtk-demo/meson.build b/demos/gtk-demo/meson.build
+index 82e08973a5..5812a6b919 100644
+--- a/demos/gtk-demo/meson.build
++++ b/demos/gtk-demo/meson.build
+@@ -28,7 +28,6 @@ demos = files([
+   'fishbowl.c',
+   'foreigndrawing.c',
+   'gestures.c',
+-  'glarea.c',
+   'headerbar.c',
+   'hypertext.c',
+   'iconview.c',
+@@ -74,6 +73,12 @@ demos = files([
+ ])
+ 
+ 
++if epoxy_dep.found()
++  demos += files([
++    'glarea.c',
++  ])
++endif
++
+ gtkdemo_deps = [libgtk_dep]
+ 
+ if harfbuzz_dep.found() and pangoft_dep.found()
+diff --git a/gdk/gdk-private.c b/gdk/gdk-private.c
+index 750edcd374..55599456a4 100644
+--- a/gdk/gdk-private.c
++++ b/gdk/gdk-private.c
+@@ -10,8 +10,13 @@ gdk__private__ (void)
+     gdk_display_open_default,
+     gdk_add_option_entries,
+     gdk_pre_parse,
++#ifdef GDK_WINDOWING_EPOXY
+     gdk_gl_get_flags,
+     gdk_gl_set_flags,
++#else
++    NULL,
++    NULL,
++#endif
+     gdk_window_freeze_toplevel_updates,
+     gdk_window_thaw_toplevel_updates,
+     gdk_display_get_rendering_mode,
+diff --git a/gdk/gdkconfig.h.meson b/gdk/gdkconfig.h.meson
+index 7db19e0470..d2309ddd6b 100644
+--- a/gdk/gdkconfig.h.meson
++++ b/gdk/gdkconfig.h.meson
+@@ -15,6 +15,7 @@ G_BEGIN_DECLS
+ #mesondefine GDK_WINDOWING_WAYLAND
+ #mesondefine GDK_WINDOWING_WIN32
+ #mesondefine GDK_WINDOWING_QUARTZ
++#mesondefine GDK_WINDOWING_EPOXY
+ 
+ G_END_DECLS
+ 
+diff --git a/gdk/gdkwindow.c b/gdk/gdkwindow.c
+index 6ae0f86710..9b78a90946 100644
+--- a/gdk/gdkwindow.c
++++ b/gdk/gdkwindow.c
+@@ -45,7 +45,9 @@
+ 
+ #include <math.h>
+ 
++#ifdef GDK_WINDOWING_EPOXY
+ #include <epoxy/gl.h>
++#endif
+ 
+ /* for the use of round() */
+ #include "fallback-c89.c"
+@@ -2842,6 +2844,7 @@ GdkGLContext *
+ gdk_window_get_paint_gl_context (GdkWindow  *window,
+                                  GError    **error)
+ {
++#ifdef GDK_WINDOWING_EPOXY
+   GError *internal_error = NULL;
+ 
+   if (_gdk_gl_flags & GDK_GL_DISABLE)
+@@ -2884,6 +2887,7 @@ gdk_window_get_paint_gl_context (GdkWindow  *window,
+       g_clear_object (&(window->impl_window->gl_paint_context));
+       return NULL;
+     }
++#endif
+ 
+   return window->impl_window->gl_paint_context;
+ }
+@@ -2964,6 +2968,7 @@ gdk_window_begin_paint_internal (GdkWindow            *window,
+ 
+   window->current_paint.use_gl = window->impl_window->gl_paint_context != NULL;
+ 
++#ifdef GDK_WINDOWING_EPOXY
+   if (window->current_paint.use_gl)
+     {
+       GdkGLContext *context;
+@@ -2995,6 +3000,7 @@ gdk_window_begin_paint_internal (GdkWindow            *window,
+           glViewport (0, 0, ww, wh);
+         }
+     }
++#endif
+ 
+   if (needs_surface)
+     {
+@@ -3005,7 +3011,9 @@ gdk_window_begin_paint_internal (GdkWindow            *window,
+       sx = sy = 1;
+       cairo_surface_get_device_scale (window->current_paint.surface, &sx, &sy);
+       cairo_surface_set_device_offset (window->current_paint.surface, -clip_box.x*sx, -clip_box.y*sy);
++#ifdef GDK_WINDOWING_EPOXY
+       gdk_cairo_surface_mark_as_direct (window->current_paint.surface, window);
++#endif
+ 
+       window->current_paint.surface_needs_composite = TRUE;
+     }
+@@ -3048,6 +3056,7 @@ gdk_window_end_paint_internal (GdkWindow *window)
+ 
+       cairo_region_get_extents (window->current_paint.region, &clip_box);
+ 
++#ifdef GDK_WINDOWING_EPOXY
+       if (window->current_paint.use_gl)
+         {
+           cairo_region_t *opaque_region = cairo_region_copy (window->current_paint.region);
+@@ -3074,6 +3083,7 @@ gdk_window_end_paint_internal (GdkWindow *window)
+                                     window->active_update_area);
+         }
+       else
++#endif
+         {
+           surface = gdk_window_ref_impl_surface (window);
+           cr = cairo_create (surface);
+@@ -5792,9 +5802,11 @@ gdk_window_withdraw (GdkWindow *window)
+ 	  _gdk_synthesize_crossing_events_for_geometry_change (window->parent);
+ 	}
+ 
++#ifdef GDK_WINDOWING_EPOXY
+       current_context = gdk_gl_context_get_current ();
+       if (current_context != NULL && gdk_gl_context_get_window (current_context) == window)
+         gdk_gl_context_clear_current ();
++#endif
+ 
+       recompute_visible_regions (window, FALSE);
+       gdk_window_clear_old_updated_area (window);
+diff --git a/gdk/meson.build b/gdk/meson.build
+index a67b8f75fa..f5f4e3f08d 100644
+--- a/gdk/meson.build
++++ b/gdk/meson.build
+@@ -14,8 +14,6 @@ gdk_sources = files(
+   'gdkdnd.c',
+   'gdkevents.c',
+   'gdkframetimings.c',
+-  'gdkgl.c',
+-  'gdkglcontext.c',
+   'gdkglobals.c',
+   'gdkkeys.c',
+   'gdkkeyuni.c',
+@@ -40,6 +38,13 @@ gdk_sources = files(
+   'gdkmonitor.c'
+ )
+ 
++if epoxy_dep.found()
++  gdk_sources += files(
++    'gdkgl.c',
++    'gdkglcontext.c',
++  )
++endif
++
+ gdk_gir_public_headers = files(
+   'gdk.h',
+   'gdk-autocleanup.h',
+@@ -166,6 +171,7 @@ gdkconfig_cdata.set('GDK_WINDOWING_WAYLAND', wayland_enabled)
+ gdkconfig_cdata.set('GDK_WINDOWING_WIN32', win32_enabled)
+ gdkconfig_cdata.set('GDK_WINDOWING_BROADWAY', broadway_enabled)
+ gdkconfig_cdata.set('GDK_WINDOWING_QUARTZ', quartz_enabled)
++gdkconfig_cdata.set('GDK_WINDOWING_EPOXY', epoxy_dep.found())
+ 
+ gdkconfig = configure_file(
+   input  : 'gdkconfig.h.meson',
+diff --git a/gdk/win32/gdkdisplay-win32.c b/gdk/win32/gdkdisplay-win32.c
+index 5c18ba689e..f06fb40a54 100644
+--- a/gdk/win32/gdkdisplay-win32.c
++++ b/gdk/win32/gdkdisplay-win32.c
+@@ -1260,7 +1260,9 @@ gdk_win32_display_class_init (GdkWin32DisplayClass *klass)
+   display_class->convert_selection = _gdk_win32_display_convert_selection;
+   display_class->text_property_to_utf8_list = _gdk_win32_display_text_property_to_utf8_list;
+   display_class->utf8_to_string_target = _gdk_win32_display_utf8_to_string_target;
++#ifdef GDK_WINDOWING_EPOXY
+   display_class->make_gl_context_current = _gdk_win32_display_make_gl_context_current;
++#endif
+ 
+   display_class->get_n_monitors = gdk_win32_display_get_n_monitors;
+   display_class->get_monitor = gdk_win32_display_get_monitor;
+diff --git a/gdk/win32/gdkevents-win32.c b/gdk/win32/gdkevents-win32.c
+index 7aef277c27..f8675f14fe 100644
+--- a/gdk/win32/gdkevents-win32.c
++++ b/gdk/win32/gdkevents-win32.c
+@@ -3307,7 +3307,9 @@ gdk_event_translate (MSG  *msg,
+ 	  do_show_window (window, msg->wParam == SC_MINIMIZE ? TRUE : FALSE);
+ 
+     if (msg->wParam == SC_RESTORE)
++#ifdef GDK_WINDOWING_EPOXY
+       _gdk_win32_window_invalidate_egl_framebuffer (window);
++#endif
+ 	  break;
+         case SC_MAXIMIZE:
+           impl = GDK_WINDOW_IMPL_WIN32 (window->impl);
+@@ -3397,7 +3399,9 @@ gdk_event_translate (MSG  *msg,
+             {
+               MINMAXINFO our_mmi;
+ 
++#ifdef GDK_WINDOWING_EPOXY
+               _gdk_win32_window_invalidate_egl_framebuffer (window);
++#endif
+ 
+               if (_gdk_win32_window_fill_min_max_info (window, &our_mmi))
+                 {
+diff --git a/gdk/win32/gdkglcontext-win32.h b/gdk/win32/gdkglcontext-win32.h
+index d58760ce63..6f696d708b 100644
+--- a/gdk/win32/gdkglcontext-win32.h
++++ b/gdk/win32/gdkglcontext-win32.h
+@@ -21,6 +21,10 @@
+ #ifndef __GDK_WIN32_GL_CONTEXT__
+ #define __GDK_WIN32_GL_CONTEXT__
+ 
++#include <gdk/gdkconfig.h>
++
++#ifdef GDK_WINDOWING_EPOXY
++
+ #include <epoxy/gl.h>
+ #include <epoxy/wgl.h>
+ 
+@@ -91,4 +95,6 @@ _gdk_win32_window_invalidate_egl_framebuffer (GdkWindow *window);
+ 
+ G_END_DECLS
+ 
++#endif
++
+ #endif /* __GDK_WIN32_GL_CONTEXT__ */
+diff --git a/gdk/win32/gdkwindow-win32.c b/gdk/win32/gdkwindow-win32.c
+index cf416d8e2a..425bdd91bc 100644
+--- a/gdk/win32/gdkwindow-win32.c
++++ b/gdk/win32/gdkwindow-win32.c
+@@ -39,7 +39,9 @@
+ #include "gdkvisualprivate.h"
+ #include "gdkmonitorprivate.h"
+ #include "gdkwin32window.h"
++#ifdef GDK_WINDOWING_EPOXY
+ #include "gdkglcontext-win32.h"
++#endif
+ #include "gdkdisplay-win32.h"
+ 
+ #include <cairo-win32.h>
+@@ -1706,7 +1708,9 @@ gdk_win32_window_move_resize (GdkWindow *window,
+     }
+   else
+     {
++#ifdef GDK_WINDOWING_EPOXY
+       _gdk_win32_window_invalidate_egl_framebuffer (window);
++#endif
+       if (with_move)
+ 	{
+ 	  gdk_win32_window_move_resize_internal (window, x, y, width, height);
+@@ -4773,8 +4777,10 @@ gdk_win32_window_end_move_resize_drag (GdkWindow *window)
+   GdkWindowImplWin32 *impl = GDK_WINDOW_IMPL_WIN32 (window->impl);
+   GdkW32DragMoveResizeContext *context = &impl->drag_move_resize_context;
+ 
++#ifdef GDK_WINDOWING_EPOXY
+   if (context->op == GDK_WIN32_DRAGOP_RESIZE)
+     _gdk_win32_window_invalidate_egl_framebuffer (window);
++#endif
+ 
+   context->op = GDK_WIN32_DRAGOP_NONE;
+ 
+@@ -5295,7 +5301,9 @@ gdk_win32_window_unmaximize (GdkWindow *window)
+ 			   GDK_WINDOW_HWND (window),
+ 			   _gdk_win32_window_state_to_string (window->state)));
+ 
++#ifdef GDK_WINDOWING_EPOXY
+   _gdk_win32_window_invalidate_egl_framebuffer (window);
++#endif
+ 
+   if (GDK_WINDOW_IS_MAPPED (window))
+     GtkShowWindow (window, SW_RESTORE);
+@@ -6294,8 +6302,10 @@ gdk_window_impl_win32_class_init (GdkWindowImplWin32Class *klass)
+   impl_class->get_property = _gdk_win32_window_get_property;
+   impl_class->change_property = _gdk_win32_window_change_property;
+   impl_class->delete_property = _gdk_win32_window_delete_property;
++#ifdef GDK_WINDOWING_EPOXY
+   impl_class->create_gl_context = _gdk_win32_window_create_gl_context;
+   impl_class->invalidate_for_new_frame = _gdk_win32_window_invalidate_for_new_frame;
++#endif
+   impl_class->get_scale_factor = _gdk_win32_window_get_scale_factor;
+   impl_class->get_unscaled_size = _gdk_win32_window_get_unscaled_size;
+ }
+diff --git a/gdk/win32/meson.build b/gdk/win32/meson.build
+index f28bd92b99..e91df35150 100644
+--- a/gdk/win32/meson.build
++++ b/gdk/win32/meson.build
+@@ -9,7 +9,6 @@ gdk_win32_sources = files(
+   'gdkdnd-win32.c',
+   'gdkevents-win32.c',
+   'gdkgeometry-win32.c',
+-  'gdkglcontext-win32.c',
+   'gdkglobals-win32.c',
+   'gdkkeys-win32.c',
+   'gdkmain-win32.c',
+@@ -23,6 +22,12 @@ gdk_win32_sources = files(
+   'gdkwindow-win32.c',
+ )
+ 
++if epoxy_dep.found()
++  gdk_win32_sources += files(
++    'gdkglcontext-win32.c',
++  )
++endif
++
+ gdk_win32_public_headers = files(
+   'gdkwin32cursor.h',
+   'gdkwin32display.h',
+diff --git a/gtk/gentypefuncs.py b/gtk/gentypefuncs.py
+index 16498b9cb0..bf9efb6847 100644
+--- a/gtk/gentypefuncs.py
++++ b/gtk/gentypefuncs.py
+@@ -45,6 +45,10 @@ for f in funcs:
+     file_output += '#ifdef GDK_WINDOWING_X11\n'
+     file_output += '*tp++ = {0}();\n'.format(f)
+     file_output += '#endif\n'
++  elif f.startswith('gdk_gl') or f.startswith('gtk_gl'):
++    file_output += '#ifdef GDK_WINDOWING_EPOXY\n'
++    file_output += '*tp++ = {0}();\n'.format(f)
++    file_output += '#endif\n'
+   else:
+     file_output += '*tp++ = {0}();\n'.format(f)
+ 
+diff --git a/gtk/meson.build b/gtk/meson.build
+index a4b97c4e1a..b8640bb416 100644
+--- a/gtk/meson.build
++++ b/gtk/meson.build
+@@ -211,7 +211,6 @@ gtk_sources = files(
+   'gtkgesturestylus.c',
+   'gtkgestureswipe.c',
+   'gtkgesturezoom.c',
+-  'gtkglarea.c',
+   'gtkgrid.c',
+   'gtkheaderbar.c',
+   'gtkhsla.c',
+@@ -387,6 +386,12 @@ gtk_sources = files(
+   'script-names.c',
+ )
+ 
++if epoxy_dep.found()
++  gtk_sources += files(
++    'gtkglarea.c',
++  )
++endif
++
+ gtk_private_type_headers = files(
+   'gtkcsstypesprivate.h',
+   'gtktexthandleprivate.h',
+diff --git a/meson.build b/meson.build
+index cc98754db0..852c8bb7d5 100644
+--- a/meson.build
++++ b/meson.build
+@@ -442,7 +442,8 @@ pangocairo_dep = dependency('pangocairo', version: cairo_req,
+ pixbuf_dep     = dependency('gdk-pixbuf-2.0', version: gdk_pixbuf_req,
+                             fallback : ['gdk-pixbuf', 'gdkpixbuf_dep'])
+ epoxy_dep      = dependency('epoxy', version: epoxy_req,
+-                            fallback: ['libepoxy', 'libepoxy_dep'])
++                            fallback: ['libepoxy', 'libepoxy_dep'],
++                            required: false)
+ atk_dep        = dependency('atk', version: atk_req,
+                             fallback : ['atk', 'libatk_dep'])
+ 
+@@ -527,6 +528,7 @@ endif
+ 
+ cairo_libs = []
+ 
++cdata.set('HAVE_EPOXY', epoxy_dep.found() ? 1 : false)
+ cdata.set('HAVE_HARFBUZZ', harfbuzz_dep.found() ? 1 : false)
+ cdata.set('HAVE_PANGOFT', pangoft_dep.found() ? 1 : false)
+ 
+@@ -891,7 +893,7 @@ endif
+ 
+ pkgconf.set('GDK_PRIVATE_PACKAGES',
+             ' '.join(gio_packages + x11_pkgs + wayland_pkgs + cairo_backends +
+-                     ['epoxy', epoxy_req] + cloudproviders_packages +
++                     (epoxy_dep.found() ? ['epoxy', epoxy_req] : []) + cloudproviders_packages +
+                      ['fribidi', fribidi_req]))
+ 
+ gtk_packages = ' '.join([
+@@ -905,7 +907,10 @@ pkgconf.set('GTK_PACKAGES', gtk_packages)
+ # Requires.private
+ pc_gdk_extra_libs += cairo_libs
+ 
+-gtk_private_packages = atk_pkgs + wayland_pkgs + ['epoxy', epoxy_req, 'fribidi', fribidi_req]
++gtk_private_packages = atk_pkgs + wayland_pkgs + ['fribidi', fribidi_req]
++if epoxy_dep.found()
++  gtk_private_packages += ['epoxy', epoxy_req]
++endif
+ if wayland_enabled or x11_enabled
+   gtk_private_packages += ['pangoft2']
+ endif
+diff --git a/tests/meson.build b/tests/meson.build
+index 586fe2f45e..1938201515 100644
+--- a/tests/meson.build
++++ b/tests/meson.build
+@@ -5,7 +5,6 @@ gtk_tests = [
+   ['scrolling-performance', ['frame-stats.c', 'variable.c']],
+   ['blur-performance', ['../gtk/gtkcairoblur.c']],
+   ['flicker'],
+-  ['gdkgears', ['gtkgears.c']],
+   ['listmodel'],
+   ['motion-compression'],
+   ['styleexamples'],
+@@ -54,7 +53,6 @@ gtk_tests = [
+   ['testfullscreen'],
+   ['testgeometry'],
+   ['testgiconpixbuf'],
+-  ['testglblending', ['gtkgears.c']],
+   ['testgmenu'],
+   ['testgrid'],
+   ['testgrouping'],
+@@ -141,6 +139,13 @@ if os_linux
+   gtk_tests += [['testfontchooserdialog']]
+ endif
+ 
++if epoxy_dep.found()
++  gtk_tests += [
++    ['gdkgears', ['gtkgears.c']],
++    ['testglblending', ['gtkgears.c']],
++  ]
++endif
++
+ # Pass the source dir here so programs can change into the source directory
+ # and find .ui files and .png files and such that they load at runtime
+ test_args = ['-DGTK_SRCDIR="@0@"'.format(meson.current_source_dir())]
+-- 
+2.17.1
+
