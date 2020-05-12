@@ -1,4 +1,4 @@
-From d6cc75261eb9f5d0ef4a8c71fff883a0b7b276b0 Mon Sep 17 00:00:00 2001
+From a8d5be346b9d05f3ae8c0c490a52ef3456b4c5cf Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Martin=20Storsj=C3=B6?= <martin@martin.st>
 Date: Sun, 5 Apr 2020 00:05:36 +0300
 Subject: [PATCH 3/8] gregistrysettings: Fix a mismatched error format string

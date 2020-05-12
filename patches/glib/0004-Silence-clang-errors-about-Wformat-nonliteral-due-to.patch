@@ -1,4 +1,4 @@
-From cbb95f56a6a1d2261d2013f8bd7a0b1e8111d464 Mon Sep 17 00:00:00 2001
+From 0cf4c1a8f6c6852186a0eae62bfc5c1c1343d6b7 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Martin=20Storsj=C3=B6?= <martin@martin.st>
 Date: Sun, 5 Apr 2020 00:06:37 +0300
 Subject: [PATCH 4/8] Silence clang errors about -Wformat-nonliteral due to

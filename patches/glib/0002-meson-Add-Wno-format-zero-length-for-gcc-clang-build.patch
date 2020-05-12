@@ -1,4 +1,4 @@
-From 3053507d9df4bb26d4241abce2440c4323323705 Mon Sep 17 00:00:00 2001
+From 4176bef6103ca25825727ed90257eceae2f29d64 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Martin=20Storsj=C3=B6?= <martin@martin.st>
 Date: Mon, 27 Apr 2020 16:19:35 +0300
 Subject: [PATCH 2/8] meson: Add -Wno-format-zero-length for gcc/clang builds
@@ -12,7 +12,7 @@ about.
  1 file changed, 2 insertions(+)
 
 diff --git a/meson.build b/meson.build
-index 7834bf61c..6d39ddf8d 100644
+index 649545168..fc61b02ee 100644
 --- a/meson.build
 +++ b/meson.build
 @@ -374,6 +374,8 @@ if cc.get_id() == 'gcc' or cc.get_id() == 'clang'
