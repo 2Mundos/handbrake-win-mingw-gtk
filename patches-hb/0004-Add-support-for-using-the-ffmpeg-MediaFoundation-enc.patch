@@ -1,4 +1,4 @@
-From b412b5353b78b993f602385315826e4ed5ef7909 Mon Sep 17 00:00:00 2001
+From 27248aa972b73bf761ab35ce31776a599b4f7f61 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Martin=20Storsj=C3=B6?= <martin@martin.st>
 Date: Fri, 8 May 2020 13:18:32 +0300
 Subject: [PATCH 4/4] Add support for using the ffmpeg MediaFoundation encoder
@@ -6,21 +6,21 @@ Subject: [PATCH 4/4] Add support for using the ffmpeg MediaFoundation encoder
 
 ---
  libhb/common.c           |  27 ++++++++++
- libhb/encavcodec.c       | 113 +++++++++++++++++++++++++++++++++++++++
- libhb/handbrake/common.h |   8 +--
+ libhb/encavcodec.c       | 106 +++++++++++++++++++++++++++++++++++++++
+ libhb/handbrake/common.h |  10 ++--
  libhb/muxavformat.c      |   2 +
  libhb/work.c             |  15 ++++++
- 5 files changed, 162 insertions(+), 3 deletions(-)
+ 5 files changed, 156 insertions(+), 4 deletions(-)
 
 diff --git a/libhb/common.c b/libhb/common.c
-index ef067f545..5bb34712b 100644
+index ef067f545..f857529b5 100644
 --- a/libhb/common.c
 +++ b/libhb/common.c
 @@ -255,6 +255,7 @@ hb_encoder_internal_t hb_video_encoders[]  =
      { { "H.264 (AMD VCE)",     "vce_h264",   "H.264 (AMD VCE)",      HB_VCODEC_FFMPEG_VCE_H264,   HB_MUX_MASK_MP4|HB_MUX_MASK_MKV, }, NULL, 1, HB_GID_VCODEC_H264,   },
      { { "H.264 (NVEnc)",       "nvenc_h264", "H.264 (NVEnc)",      HB_VCODEC_FFMPEG_NVENC_H264, HB_MUX_MASK_MP4|HB_MUX_MASK_MKV, }, NULL, 1, HB_GID_VCODEC_H264,   },
      { { "H.264 (VideoToolbox)","vt_h264",    "H.264 (libavcodec)",      HB_VCODEC_FFMPEG_VT_H264,    HB_MUX_MASK_MP4|HB_MUX_MASK_MKV, }, NULL, 1, HB_GID_VCODEC_H264,   },
-+    { { "H.264 (MediaFoundation)","mf_h264", "H.264 (libavcodec)",      HB_VCODEC_FFMPEG_MF_H264,    HB_MUX_MASK_MP4|HB_MUX_MASK_MKV, }, NULL, 1, HB_GID_VCODEC_H264,   },
++    { { "H.264 (MediaFoundation)","mf_h264", "H.264 (MediaFoundation)", HB_VCODEC_FFMPEG_MF_H264,    HB_MUX_MASK_MP4|HB_MUX_MASK_MKV, }, NULL, 1, HB_GID_VCODEC_H264,   },
      { { "H.265 (x265)",        "x265",       "H.265 (libx265)",         HB_VCODEC_X265_8BIT,         HB_MUX_AV_MP4|HB_MUX_AV_MKV,   }, NULL, 1, HB_GID_VCODEC_H265,   },
      { { "H.265 10-bit (x265)", "x265_10bit", "H.265 10-bit (libx265)",  HB_VCODEC_X265_10BIT,        HB_MUX_AV_MP4|HB_MUX_AV_MKV,   }, NULL, 1, HB_GID_VCODEC_H265,   },
      { { "H.265 12-bit (x265)", "x265_12bit", "H.265 12-bit (libx265)",  HB_VCODEC_X265_12BIT,        HB_MUX_AV_MP4|HB_MUX_AV_MKV,   }, NULL, 1, HB_GID_VCODEC_H265,   },
@@ -28,7 +28,7 @@ index ef067f545..5bb34712b 100644
      { { "H.265 (AMD VCE)",     "vce_h265",   "H.265 (AMD VCE)",      HB_VCODEC_FFMPEG_VCE_H265,   HB_MUX_MASK_MP4|HB_MUX_MASK_MKV, }, NULL, 1, HB_GID_VCODEC_H265,   },
      { { "H.265 (NVEnc)",       "nvenc_h265", "H.265 (NVEnc)",      HB_VCODEC_FFMPEG_NVENC_H265, HB_MUX_MASK_MP4|HB_MUX_MASK_MKV, }, NULL, 1, HB_GID_VCODEC_H265,   },
      { { "H.265 (VideoToolbox)","vt_h265",    "H.265 (libavcodec)",      HB_VCODEC_FFMPEG_VT_H265,    HB_MUX_MASK_MP4|HB_MUX_MASK_MKV, }, NULL, 1, HB_GID_VCODEC_H265,   },
-+    { { "H.265 (MediaFoundation)","mf_h265", "H.265 (libavcodec)",      HB_VCODEC_FFMPEG_MF_H265,    HB_MUX_MASK_MP4|HB_MUX_MASK_MKV, }, NULL, 1, HB_GID_VCODEC_H265,   },
++    { { "H.265 (MediaFoundation)","mf_h265", "H.265 (MediaFoundation)", HB_VCODEC_FFMPEG_MF_H265,    HB_MUX_MASK_MP4|HB_MUX_MASK_MKV, }, NULL, 1, HB_GID_VCODEC_H265,   },
      { { "MPEG-4",              "mpeg4",      "MPEG-4 (libavcodec)",     HB_VCODEC_FFMPEG_MPEG4,      HB_MUX_MASK_MP4|HB_MUX_MASK_MKV, }, NULL, 1, HB_GID_VCODEC_MPEG4,  },
      { { "MPEG-2",              "mpeg2",      "MPEG-2 (libavcodec)",     HB_VCODEC_FFMPEG_MPEG2,      HB_MUX_MASK_MP4|HB_MUX_MASK_MKV, }, NULL, 1, HB_GID_VCODEC_MPEG2,  },
      { { "VP8",                 "VP8",        "VP8 (libvpx)",            HB_VCODEC_FFMPEG_VP8,       HB_MUX_MASK_WEBM|HB_MUX_MASK_MKV, }, NULL, 1, HB_GID_VCODEC_VP8,    },
@@ -100,7 +100,7 @@ index ef067f545..5bb34712b 100644
  
  #ifdef __APPLE__
 diff --git a/libhb/encavcodec.c b/libhb/encavcodec.c
-index 5bef84dbd..40a9162fe 100644
+index 5bef84dbd..74e09ffc2 100644
 --- a/libhb/encavcodec.c
 +++ b/libhb/encavcodec.c
 @@ -45,6 +45,9 @@ struct hb_work_private_s
@@ -183,7 +183,7 @@ index 5bef84dbd..40a9162fe 100644
          else
          {
              // These settings produce better image quality than
-@@ -572,6 +610,47 @@ int encavcodecInit( hb_work_object_t * w, hb_job_t * job )
+@@ -572,6 +610,40 @@ int encavcodecInit( hb_work_object_t * w, hb_job_t * job )
          av_dict_set(&av_opts, "gops_per_idr", "1", 0);
      }
  
@@ -200,13 +200,6 @@ index 5bef84dbd..40a9162fe 100644
 +                context->profile = FF_PROFILE_H264_HIGH;
 +        }
 +
-+    }
-+
-+    if (job->vcodec == HB_VCODEC_FFMPEG_MF_H265)
-+    {
-+        // The Qualcomm HEVC is buggy with bf=1; bf=2 is the recommended
-+        // setting.
-+        context->max_b_frames = 2;
 +    }
 +
 +    if (job->vcodec == HB_VCODEC_FFMPEG_MF_H264 ||
@@ -231,7 +224,7 @@ index 5bef84dbd..40a9162fe 100644
      if( job->pass_id == HB_PASS_ENCODE_1ST ||
          job->pass_id == HB_PASS_ENCODE_2ND )
      {
-@@ -719,6 +798,14 @@ void encavcodecClose( hb_work_object_t * w )
+@@ -719,6 +791,14 @@ void encavcodecClose( hb_work_object_t * w )
          }
          hb_avcodec_free_context(&pv->context);
      }
@@ -246,7 +239,7 @@ index 5bef84dbd..40a9162fe 100644
      if( pv->file )
      {
          fclose( pv->file );
-@@ -879,6 +966,24 @@ static void Encode( hb_work_object_t *w, hb_buffer_t *in,
+@@ -879,6 +959,24 @@ static void Encode( hb_work_object_t *w, hb_buffer_t *in,
      frame.linesize[1] = in->plane[1].stride;
      frame.linesize[2] = in->plane[2].stride;
  
@@ -271,7 +264,7 @@ index 5bef84dbd..40a9162fe 100644
      if (in->s.new_chap > 0 && pv->job->chapter_markers)
      {
          /* chapters have to start with an IDR frame so request that this
-@@ -1087,6 +1192,10 @@ const char* const* hb_av_preset_get_names(int encoder)
+@@ -1087,6 +1185,10 @@ const char* const* hb_av_preset_get_names(int encoder)
          case HB_VCODEC_FFMPEG_VT_H265:
              return h26x_vt_preset_name;
  
@@ -282,7 +275,7 @@ index 5bef84dbd..40a9162fe 100644
          default:
              return NULL;
      }
-@@ -1104,6 +1213,10 @@ const char* const* hb_av_profile_get_names(int encoder)
+@@ -1104,6 +1206,10 @@ const char* const* hb_av_profile_get_names(int encoder)
              return h264_vt_profile_name;
          case HB_VCODEC_FFMPEG_VT_H265:
              return h265_vt_profile_name;
@@ -294,9 +287,18 @@ index 5bef84dbd..40a9162fe 100644
           default:
               return NULL;
 diff --git a/libhb/handbrake/common.h b/libhb/handbrake/common.h
-index 3d91be0da..989f0837d 100644
+index 3d91be0da..c946fa1a5 100644
 --- a/libhb/handbrake/common.h
 +++ b/libhb/handbrake/common.h
+@@ -510,7 +510,7 @@ struct hb_job_s
+          cfr:               0 (vfr), 1 (cfr), 2 (pfr) [see render.c]
+          pass:              0, 1 or 2 (or -1 for scan)
+          areBframes:        boolean to note if b-frames are used */
+-#define HB_VCODEC_MASK         0x0FFFFFF
++#define HB_VCODEC_MASK         0x3FFFFFF
+ #define HB_VCODEC_INVALID      0x0000000
+ #define HB_VCODEC_THEORA       0x0000002
+ #define HB_VCODEC_FFMPEG_MPEG4 0x0000010
 @@ -523,7 +523,9 @@ struct hb_job_s
  #define HB_VCODEC_FFMPEG_NVENC_H265 0x00200000
  #define HB_VCODEC_FFMPEG_VT_H264 0x00400000
