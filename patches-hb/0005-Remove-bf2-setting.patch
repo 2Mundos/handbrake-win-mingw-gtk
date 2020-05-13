@@ -1,3 +1,12 @@
+From d17cc526b49dc9cefe69ea1075386153d8fdffd5 Mon Sep 17 00:00:00 2001
+From: Mauricio Piacentini <mpiacentini@2mundos.net>
+Date: Wed, 13 May 2020 20:53:28 -0300
+Subject: [PATCH] Remove bf setting
+
+---
+ libhb/encavcodec.c | 7 -------
+ 1 file changed, 7 deletions(-)
+
 diff --git a/libhb/encavcodec.c b/libhb/encavcodec.c
 index 40a9162fe..74e09ffc2 100644
 --- a/libhb/encavcodec.c
@@ -16,3 +25,5 @@ index 40a9162fe..74e09ffc2 100644
      if (job->vcodec == HB_VCODEC_FFMPEG_MF_H264 ||
          job->vcodec == HB_VCODEC_FFMPEG_MF_H265)
      {
+-- 
+2.20.1
