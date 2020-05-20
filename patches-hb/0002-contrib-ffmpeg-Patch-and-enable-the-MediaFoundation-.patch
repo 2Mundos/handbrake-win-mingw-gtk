@@ -1,29 +1,29 @@
-From f9afcc166a878991927b056e3402c9181b3dcc58 Mon Sep 17 00:00:00 2001
+From 6cc2269d79e07bad51cb6dcb707df382294bf73f Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Martin=20Storsj=C3=B6?= <martin@martin.st>
 Date: Fri, 24 Apr 2020 15:21:58 +0300
-Subject: [PATCH 2/4] contrib: ffmpeg: Patch and enable the MediaFoundation
+Subject: [PATCH 2/3] contrib: ffmpeg: Patch and enable the MediaFoundation
  encoder wrappers
 
 ---
- contrib/ffmpeg/A19-mf-encoder.patch           | 2272 +++++++++++++++++
- .../A20-movenc-missing-hevc-extradata.patch   |  227 ++
+ contrib/ffmpeg/A19-mf-encoder.patch           | 2282 +++++++++++++++++
+ .../A20-movenc-missing-hevc-extradata.patch   |   80 +
  .../A21-swscale-aarch64-interleave.patch      |  203 ++
  contrib/ffmpeg/module.defs                    |    4 +-
  gtk/configure.ac                              |    2 +-
  libhb/module.defs                             |    2 +-
  test/module.defs                              |    2 +-
- 7 files changed, 2708 insertions(+), 4 deletions(-)
+ 7 files changed, 2571 insertions(+), 4 deletions(-)
  create mode 100644 contrib/ffmpeg/A19-mf-encoder.patch
  create mode 100644 contrib/ffmpeg/A20-movenc-missing-hevc-extradata.patch
  create mode 100644 contrib/ffmpeg/A21-swscale-aarch64-interleave.patch
 
 diff --git a/contrib/ffmpeg/A19-mf-encoder.patch b/contrib/ffmpeg/A19-mf-encoder.patch
 new file mode 100644
-index 000000000..10dec388a
+index 000000000..7e6029d4c
 --- /dev/null
 +++ b/contrib/ffmpeg/A19-mf-encoder.patch
-@@ -0,0 +1,2272 @@
-+From 63b5201cc7f3ddaff4b9fce6798d90e3b1db6f35 Mon Sep 17 00:00:00 2001
+@@ -0,0 +1,2282 @@
++From 84d8322e065539b772a8ecd4032ffbcdcccb331b Mon Sep 17 00:00:00 2001
 +From: wm4 <nfxjfg@googlemail.com>
 +Date: Tue, 4 Apr 2017 07:45:41 +0200
 +Subject: [PATCH 1/3] avcodec: Add MediaFoundation encoder wrapper
@@ -43,7 +43,9 @@ index 000000000..10dec388a
 +fixes and tweaks for use with Qualcomm encoders by Martin Storsjö.
 +
 +Signed-off-by: Martin Storsjö <martin@martin.st>
-+(cherry picked from commit 050b72ab5ef318605b305aa6cb920e8b52f1002e)
++(cherry picked from commit 050b72ab5ef318605b305aa6cb920e8b52f1002e,
++with fixups from fea5f5bc64e02ab4f753aa55cc8eed4a893650a5 and
++c116c127f9ccd18ff3cf038cfb65a284b01fe720 squashed.)
 +---
 + configure              |   11 +
 + doc/encoders.texi      |    8 +
@@ -51,8 +53,8 @@ index 000000000..10dec388a
 + libavcodec/allcodecs.c |    5 +
 + libavcodec/mf_utils.c  |  680 +++++++++++++++++++++++
 + libavcodec/mf_utils.h  |  159 ++++++
-+ libavcodec/mfenc.c     | 1192 ++++++++++++++++++++++++++++++++++++++++
-+ 7 files changed, 2061 insertions(+)
++ libavcodec/mfenc.c     | 1200 ++++++++++++++++++++++++++++++++++++++++
++ 7 files changed, 2069 insertions(+)
 + create mode 100644 libavcodec/mf_utils.c
 + create mode 100644 libavcodec/mf_utils.h
 + create mode 100644 libavcodec/mfenc.c
@@ -1096,10 +1098,10 @@ index 000000000..10dec388a
 ++#endif
 +diff --git a/libavcodec/mfenc.c b/libavcodec/mfenc.c
 +new file mode 100644
-+index 0000000000..dcc3b32307
++index 0000000000..83f26b3cc6
 +--- /dev/null
 ++++ b/libavcodec/mfenc.c
-+@@ -0,0 +1,1192 @@
++@@ -0,0 +1,1200 @@
 ++/*
 ++ * This file is part of FFmpeg.
 ++ *
@@ -1739,11 +1741,19 @@ index 000000000..10dec388a
 ++static int mf_encv_output_adjust(AVCodecContext *avctx, IMFMediaType *type)
 ++{
 ++    MFContext *c = avctx->priv_data;
+++    AVRational framerate;
 ++
 ++    ff_MFSetAttributeSize((IMFAttributes *)type, &MF_MT_FRAME_SIZE, avctx->width, avctx->height);
 ++    IMFAttributes_SetUINT32(type, &MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
 ++
-++    ff_MFSetAttributeRatio((IMFAttributes *)type, &MF_MT_FRAME_RATE, avctx->framerate.num, avctx->framerate.den);
+++    if (avctx->framerate.num > 0 && avctx->framerate.den > 0) {
+++        framerate = avctx->framerate;
+++    } else {
+++        framerate = av_inv_q(avctx->time_base);
+++        framerate.den *= avctx->ticks_per_frame;
+++    }
+++
+++    ff_MFSetAttributeRatio((IMFAttributes *)type, &MF_MT_FRAME_RATE, framerate.num, framerate.den);
 ++
 ++    // (MS HEVC supports eAVEncH265VProfile_Main_420_8 only.)
 ++    if (avctx->codec_id == AV_CODEC_ID_H264) {
@@ -1779,7 +1789,7 @@ index 000000000..10dec388a
 ++        // "scenario" to "camera_record" sets it in CFR mode (where the default
 ++        // is VFR), which makes the encoder avoid dropping frames.
 ++        ICodecAPI_SetValue(c->codec_api, &ff_CODECAPI_AVEncMPVDefaultBPictureCount, FF_VAL_VT_UI4(avctx->max_b_frames));
-++        avctx->has_b_frames = avctx->max_b_frames > 1 ? 1 : 0;
+++        avctx->has_b_frames = avctx->max_b_frames > 0;
 ++
 ++        ICodecAPI_SetValue(c->codec_api, &ff_CODECAPI_AVEncH264CABACEnable, FF_VAL_VT_BOOL(1));
 ++
@@ -2297,15 +2307,22 @@ index 000000000..10dec388a
 +
 diff --git a/contrib/ffmpeg/A20-movenc-missing-hevc-extradata.patch b/contrib/ffmpeg/A20-movenc-missing-hevc-extradata.patch
 new file mode 100644
-index 000000000..9e4b77258
+index 000000000..2cc13b880
 --- /dev/null
 +++ b/contrib/ffmpeg/A20-movenc-missing-hevc-extradata.patch
-@@ -0,0 +1,227 @@
-+From b01457aa1bd57e7baabb414912411ac9b6ec01e6 Mon Sep 17 00:00:00 2001
+@@ -0,0 +1,80 @@
++From 7a1a063f94daead399ac086f4377bb607ec887a3 Mon Sep 17 00:00:00 2001
 +From: =?UTF-8?q?Martin=20Storsj=C3=B6?= <martin@martin.st>
 +Date: Fri, 8 May 2020 14:21:32 +0300
-+Subject: [PATCH 2/3] movenc: Try to extract extradata from the first H264/HEVC
-+ packet, if none is set
++Subject: [PATCH 2/3] movenc: Use first H264/HEVC frame as extradata, if it is
++ missing
++MIME-Version: 1.0
++Content-Type: text/plain; charset=UTF-8
++Content-Transfer-Encoding: 8bit
++
++Sticking a full frame in the extradata works, as the code for writing
++the avcC/hvcC extracts the relevant parameter set NAL units - provided
++that they actually exist in the frame.
 +
 +Some encoders don't provide split out extradata directly on init (or
 +at all). In particular, the MediaFoundation encoder wrapper doesn't
@@ -2315,226 +2332,72 @@ index 000000000..9e4b77258
 +This only works for cases where the moov hasn't already been written
 +(e.g. when not writing fragmented mp4 with empty_moov, unless using
 +the delay_moov option).
-+---
-+ libavformat/avc.c    | 41 ++++++++++++++++++++++++++++++++++
-+ libavformat/avc.h    |  3 +++
-+ libavformat/hevc.c   | 52 ++++++++++++++++++++++++++++++++++++--------
-+ libavformat/hevc.h   | 16 ++++++++++++++
-+ libavformat/movenc.c | 11 ++++++++++
-+ 5 files changed, 114 insertions(+), 9 deletions(-)
 +
-+diff --git a/libavformat/avc.c b/libavformat/avc.c
-+index a041e84357..0aff6b4f77 100644
-+--- a/libavformat/avc.c
-++++ b/libavformat/avc.c
-+@@ -195,6 +195,47 @@ fail:
-+     return ret;
-+ }
-+ 
-++int ff_avc_extract_parameter_sets(const uint8_t *buf_in, int size_in,
-++                                  uint8_t **buf_out, int *size_out)
-++{
-++    const uint8_t *p = buf_in;
-++    const uint8_t *end = p + size_in;
-++    const uint8_t *nal_start, *nal_end;
-++    AVIOContext *pb;
-++    int ret = avio_open_dyn_buf(&pb);
-++    if (ret < 0)
-++        return ret;
-++
-++    nal_start = ff_avc_find_startcode(p, end);
-++    for (;;) {
-++        uint8_t nal_type;
-++
-++        while (nal_start < end && !*(nal_start++));
-++        if (nal_start == end)
-++            break;
-++
-++        nal_type = nal_start[0] & 0x1f;
-++        nal_end = ff_avc_find_startcode(nal_start, end);
-++
-++        switch (nal_type) {
-++        case 7:  /* SPS */
-++        case 8:  /* PPS */
-++        case 13: /* SPS_EXT */
-++            avio_wb32(pb, 1);
-++            avio_write(pb, nal_start, nal_end - nal_start);
-++            break;
-++        default:
-++            break;
-++        }
-++
-++        nal_start = nal_end;
-++    }
-++
-++    *size_out = avio_close_dyn_buf(pb, buf_out);
-++
-++    return 0;
-++}
-++
-+ int ff_avc_write_annexb_extradata(const uint8_t *in, uint8_t **buf, int *size)
-+ {
-+     uint16_t sps_size, pps_size;
-+diff --git a/libavformat/avc.h b/libavformat/avc.h
-+index a79bf9b2db..7be1e26474 100644
-+--- a/libavformat/avc.h
-++++ b/libavformat/avc.h
-+@@ -36,6 +36,9 @@ const uint8_t *ff_avc_mp4_find_startcode(const uint8_t *start,
-+ uint8_t *ff_nal_unit_extract_rbsp(const uint8_t *src, uint32_t src_len,
-+                                   uint32_t *dst_len, int header_len);
-+ 
-++int ff_avc_extract_parameter_sets(const uint8_t *buf_in, int size_in,
-++                                  uint8_t **buf_out, int *size_out);
-++
-+ typedef struct {
-+     uint8_t id;
-+     uint8_t profile_idc;
-+diff --git a/libavformat/hevc.c b/libavformat/hevc.c
-+index c7c4be3441..878c34751d 100644
-+--- a/libavformat/hevc.c
-++++ b/libavformat/hevc.c
-+@@ -1059,20 +1059,22 @@ int ff_hevc_annexb2mp4_buf(const uint8_t *buf_in, uint8_t **buf_out,
-+     return ret;
-+ }
-+ 
-+-int ff_isom_write_hvcc(AVIOContext *pb, const uint8_t *data,
-+-                       int size, int ps_array_completeness)
-++static int write_parameter_sets(AVIOContext *pb, const uint8_t *data,
-++                                int size, int ps_array_completeness,
-++                                int write_hvcc)
-+ {
-+     int ret = 0;
-+     uint8_t *buf, *end, *start = NULL;
-+     HEVCDecoderConfigurationRecord hvcc;
-+ 
-+-    hvcc_init(&hvcc);
-++    if (write_hvcc)
-++        hvcc_init(&hvcc);
-+ 
-+     if (size < 6) {
-+         /* We can't write a valid hvcC from the provided data */
-+         ret = AVERROR_INVALIDDATA;
-+         goto end;
-+-    } else if (*data == 1) {
-++    } else if (*data == 1 && write_hvcc) {
-+         /* Data is already hvcC-formatted */
-+         avio_write(pb, data, size);
-+         goto end;
-+@@ -1101,9 +1103,14 @@ int ff_isom_write_hvcc(AVIOContext *pb, const uint8_t *data,
-+         case HEVC_NAL_PPS:
-+         case HEVC_NAL_SEI_PREFIX:
-+         case HEVC_NAL_SEI_SUFFIX:
-+-            ret = hvcc_add_nal_unit(buf, len, ps_array_completeness, &hvcc);
-+-            if (ret < 0)
-+-                goto end;
-++            if (write_hvcc) {
-++                ret = hvcc_add_nal_unit(buf, len, ps_array_completeness, &hvcc);
-++                if (ret < 0)
-++                    goto end;
-++            } else {
-++                avio_wb32(pb, 1);
-++                avio_write(pb, buf, len);
-++            }
-+             break;
-+         default:
-+             break;
-+@@ -1112,10 +1119,37 @@ int ff_isom_write_hvcc(AVIOContext *pb, const uint8_t *data,
-+         buf += len;
-+     }
-+ 
-+-    ret = hvcc_write(pb, &hvcc);
-++    if (write_hvcc)
-++        ret = hvcc_write(pb, &hvcc);
-+ 
-+ end:
-+-    hvcc_close(&hvcc);
-++    if (write_hvcc)
-++        hvcc_close(&hvcc);
-+     av_free(start);
-+     return ret;
-+ }
-++
-++int ff_isom_write_hvcc(AVIOContext *pb, const uint8_t *data,
-++                       int size, int ps_array_completeness)
-++{
-++    return write_parameter_sets(pb, data, size, ps_array_completeness, 1);
-++}
-++
-++int ff_hevc_extract_parameter_sets(const uint8_t *buf_in, int size_in,
-++                                   uint8_t **buf_out, int *size_out)
-++{
-++    AVIOContext *pb;
-++    int ret = avio_open_dyn_buf(&pb);
-++    if (ret < 0)
-++        return ret;
-++
-++    ret = write_parameter_sets(pb, buf_in, size_in, 0, 0);
-++
-++    *size_out = avio_close_dyn_buf(pb, buf_out);
-++    if (ret < 0) {
-++        av_freep(buf_out);
-++        *size_out = 0;
-++    }
-++
-++    return ret;
-++}
-+diff --git a/libavformat/hevc.h b/libavformat/hevc.h
-+index 796eaf40b1..efc7c33e7d 100644
-+--- a/libavformat/hevc.h
-++++ b/libavformat/hevc.h
-+@@ -95,4 +95,20 @@ int ff_hevc_annexb2mp4_buf(const uint8_t *buf_in, uint8_t **buf_out,
-+ int ff_isom_write_hvcc(AVIOContext *pb, const uint8_t *data,
-+                        int size, int ps_array_completeness);
-+ 
-++/**
-++ * Extract the NAL units that belong to extradata from a full frame in
-++ * Annex B format, storing them in a newly allocated buffer in Annex B
-++ * format.
-++ *
-++ * @param buf_in pointer to the buffer holding the frame
-++ * @param size_in size (in bytes) of the buf_in buffer
-++ * @param buf_out pointer to a pointer where the allocated output buffer is
-++ *                stored
-++ * @param size_out pointer where the size of buf_out is stored
-++ * @return >=0 in case of success, a negative value corresponding to an AVERROR
-++ *         code in case of failure
-++ */
-++int ff_hevc_extract_parameter_sets(const uint8_t *buf_in, int size_in,
-++                                   uint8_t **buf_out, int *size_out);
-++
-+ #endif /* AVFORMAT_HEVC_H */
++Signed-off-by: Martin Storsjö <martin@martin.st>
++(cherry picked from commit 9f891d0b4b584bc061808bfab35ffe9810d3bc77,
++with fixups from 1aec1fbcc5952e1c2f9820e032ad2e5f9bf1a670 and
++638b5d51cf65b384e8632e650056ed0e62b16884 squashed.)
++---
++ libavformat/movenc.c | 29 ++++++++++++++++-------------
++ 1 file changed, 16 insertions(+), 13 deletions(-)
++
 +diff --git a/libavformat/movenc.c b/libavformat/movenc.c
-+index 0d1d00b777..96e0030f65 100644
++index 0d1d00b777..7cdddc5147 100644
 +--- a/libavformat/movenc.c
 ++++ b/libavformat/movenc.c
-+@@ -5355,6 +5355,17 @@ int ff_mov_write_packet(AVFormatContext *s, AVPacket *pkt)
-+         memcpy(trk->vos_data, par->extradata, trk->vos_len);
++@@ -5356,6 +5356,22 @@ int ff_mov_write_packet(AVFormatContext *s, AVPacket *pkt)
 +         memset(trk->vos_data + trk->vos_len, 0, AV_INPUT_BUFFER_PADDING_SIZE);
 +     }
-++    if (trk->vos_len == 0 && par->codec_id == AV_CODEC_ID_H264) {
-++        ret = ff_avc_extract_parameter_sets(pkt->data, pkt->size,
-++                                            &trk->vos_data, &trk->vos_len);
-++        if (ret < 0)
-++            goto err;
-++    } else if (trk->vos_len == 0 && par->codec_id == AV_CODEC_ID_HEVC) {
-++        ret = ff_hevc_extract_parameter_sets(pkt->data, pkt->size,
-++                                             &trk->vos_data, &trk->vos_len);
-++        if (ret < 0)
-++            goto err;
-++    }
 + 
+++    if ((par->codec_id == AV_CODEC_ID_DNXHD ||
+++         par->codec_id == AV_CODEC_ID_H264 ||
+++         par->codec_id == AV_CODEC_ID_HEVC ||
+++         par->codec_id == AV_CODEC_ID_AC3) && !trk->vos_len &&
+++         !TAG_IS_AVCI(trk->tag)) {
+++        /* copy frame to create needed atoms */
+++        trk->vos_len  = size;
+++        trk->vos_data = av_malloc(size + AV_INPUT_BUFFER_PADDING_SIZE);
+++        if (!trk->vos_data) {
+++            ret = AVERROR(ENOMEM);
+++            goto err;
+++        }
+++        memcpy(trk->vos_data, pkt->data, size);
+++        memset(trk->vos_data + size, 0, AV_INPUT_BUFFER_PADDING_SIZE);
+++    }
+++
 +     if (par->codec_id == AV_CODEC_ID_AAC && pkt->size > 2 &&
 +         (AV_RB16(pkt->data) & 0xfff0) == 0xfff0) {
++         if (!s->streams[pkt->stream_index]->nb_frames) {
++@@ -5426,19 +5442,6 @@ int ff_mov_write_packet(AVFormatContext *s, AVPacket *pkt)
++         }
++     }
++ 
++-    if ((par->codec_id == AV_CODEC_ID_DNXHD ||
++-         par->codec_id == AV_CODEC_ID_AC3) && !trk->vos_len) {
++-        /* copy frame to create needed atoms */
++-        trk->vos_len  = size;
++-        trk->vos_data = av_malloc(size + AV_INPUT_BUFFER_PADDING_SIZE);
++-        if (!trk->vos_data) {
++-            ret = AVERROR(ENOMEM);
++-            goto err;
++-        }
++-        memcpy(trk->vos_data, pkt->data, size);
++-        memset(trk->vos_data + size, 0, AV_INPUT_BUFFER_PADDING_SIZE);
++-    }
++-
++     if (trk->entry >= trk->cluster_capacity) {
++         unsigned new_capacity = 2 * (trk->entry + MOV_INDEX_CLUSTER_SIZE);
++         if (av_reallocp_array(&trk->cluster, new_capacity,
 +-- 
 +2.17.1
 +
 diff --git a/contrib/ffmpeg/A21-swscale-aarch64-interleave.patch b/contrib/ffmpeg/A21-swscale-aarch64-interleave.patch
 new file mode 100644
-index 000000000..f35aa26c4
+index 000000000..55d34a7e3
 --- /dev/null
 +++ b/contrib/ffmpeg/A21-swscale-aarch64-interleave.patch
 @@ -0,0 +1,203 @@
-+From 8b8ad7ad021b6567d5993e01e3a023618432c1bb Mon Sep 17 00:00:00 2001
++From 36340a4e88be1911a48eb48ed197bfe7caa7d744 Mon Sep 17 00:00:00 2001
 +From: =?UTF-8?q?Martin=20Storsj=C3=B6?= <martin@martin.st>
 +Date: Fri, 15 May 2020 10:54:10 +0300
 +Subject: [PATCH 3/3] swscale: aarch64: Add a NEON implementation of

@@ -1,16 +1,26 @@
-From f046502870b761886dd71890c16117cabb2f0b72 Mon Sep 17 00:00:00 2001
+From 5ea8cdbf22b87a0e719b5db8edebba1a298adf52 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Martin=20Storsj=C3=B6?= <martin@martin.st>
 Date: Fri, 8 May 2020 13:18:32 +0300
-Subject: [PATCH 4/4] Add support for using the ffmpeg MediaFoundation encoder
+Subject: [PATCH 3/3] Add support for using the ffmpeg MediaFoundation encoder
  wrapper
 
+This works fine for e.g. the Qualcomm H264 and HEVC encoders on
+ARM64 windows devices, and should work the same for other vendors
+HW encoders on X86 devices (even though those encoders usually are
+available via vendor specific APIs as well, and this patch is currently
+only tested and tuned for Qualcomm).
+
+There's no detection for whether the MediaFoundation wrapper is going
+to provide a working encoder for either format (it currently forcibly
+tries to use a HW encoder and fails if there isn't a matchine one,
+or if it doesn't accept the parameters that have been set).
 ---
- libhb/common.c           |  27 ++++++++++
- libhb/encavcodec.c       | 112 +++++++++++++++++++++++++++++++++++++++
+ libhb/common.c           |  27 +++++++++
+ libhb/encavcodec.c       | 120 +++++++++++++++++++++++++++++++++++++++
  libhb/handbrake/common.h |  10 ++--
  libhb/muxavformat.c      |   2 +
- libhb/work.c             |  15 ++++++
- 5 files changed, 162 insertions(+), 4 deletions(-)
+ libhb/work.c             |  15 +++++
+ 5 files changed, 170 insertions(+), 4 deletions(-)
 
 diff --git a/libhb/common.c b/libhb/common.c
 index ef067f545..f857529b5 100644
@@ -100,7 +110,7 @@ index ef067f545..f857529b5 100644
  
  #ifdef __APPLE__
 diff --git a/libhb/encavcodec.c b/libhb/encavcodec.c
-index 5bef84dbd..dcca233e0 100644
+index e6899412f..4d38dedba 100644
 --- a/libhb/encavcodec.c
 +++ b/libhb/encavcodec.c
 @@ -45,6 +45,9 @@ struct hb_work_private_s
@@ -157,7 +167,7 @@ index 5bef84dbd..dcca233e0 100644
              }
          }break;
      }
-@@ -320,6 +346,16 @@ int encavcodecInit( hb_work_object_t * w, hb_job_t * job )
+@@ -319,6 +345,16 @@ int encavcodecInit( hb_work_object_t * w, hb_job_t * job )
              av_dict_set( &av_opts, "rc", "vbr_peak", 0 );
              hb_log( "encavcodec: encoding at rc=vbr_peak Bitrate %d", job->vbitrate );
          }
@@ -174,7 +184,7 @@ index 5bef84dbd..dcca233e0 100644
      }
      else
      {
-@@ -401,6 +437,14 @@ int encavcodecInit( hb_work_object_t * w, hb_job_t * job )
+@@ -400,6 +436,14 @@ int encavcodecInit( hb_work_object_t * w, hb_job_t * job )
              }
              hb_log( "encavcodec: encoding at QP %.2f", job->vquality );
          }
@@ -189,7 +199,7 @@ index 5bef84dbd..dcca233e0 100644
          else
          {
              // These settings produce better image quality than
-@@ -572,6 +616,40 @@ int encavcodecInit( hb_work_object_t * w, hb_job_t * job )
+@@ -571,6 +615,48 @@ int encavcodecInit( hb_work_object_t * w, hb_job_t * job )
          av_dict_set(&av_opts, "gops_per_idr", "1", 0);
      }
  
@@ -227,10 +237,18 @@ index 5bef84dbd..dcca233e0 100644
 +        context->pix_fmt = AV_PIX_FMT_NV12;
 +    }
 +
++    if (job->vcodec == HB_VCODEC_FFMPEG_MF_H265)
++    {
++        // Qualcomm's HEVC encoder does support b-frames. Some chipsets
++        // support setting this to either 1 or 2, while others only support
++        // setting it to 1.
++        context->max_b_frames = 1;
++    }
++
      if( job->pass_id == HB_PASS_ENCODE_1ST ||
          job->pass_id == HB_PASS_ENCODE_2ND )
      {
-@@ -719,6 +797,14 @@ void encavcodecClose( hb_work_object_t * w )
+@@ -718,6 +804,14 @@ void encavcodecClose( hb_work_object_t * w )
          }
          hb_avcodec_free_context(&pv->context);
      }
@@ -245,7 +263,7 @@ index 5bef84dbd..dcca233e0 100644
      if( pv->file )
      {
          fclose( pv->file );
-@@ -879,6 +965,24 @@ static void Encode( hb_work_object_t *w, hb_buffer_t *in,
+@@ -878,6 +972,24 @@ static void Encode( hb_work_object_t *w, hb_buffer_t *in,
      frame.linesize[1] = in->plane[1].stride;
      frame.linesize[2] = in->plane[2].stride;
  
@@ -270,7 +288,7 @@ index 5bef84dbd..dcca233e0 100644
      if (in->s.new_chap > 0 && pv->job->chapter_markers)
      {
          /* chapters have to start with an IDR frame so request that this
-@@ -1087,6 +1191,10 @@ const char* const* hb_av_preset_get_names(int encoder)
+@@ -1086,6 +1198,10 @@ const char* const* hb_av_preset_get_names(int encoder)
          case HB_VCODEC_FFMPEG_VT_H265:
              return h26x_vt_preset_name;
  
@@ -281,7 +299,7 @@ index 5bef84dbd..dcca233e0 100644
          default:
              return NULL;
      }
-@@ -1104,6 +1212,10 @@ const char* const* hb_av_profile_get_names(int encoder)
+@@ -1103,6 +1219,10 @@ const char* const* hb_av_profile_get_names(int encoder)
              return h264_vt_profile_name;
          case HB_VCODEC_FFMPEG_VT_H265:
              return h265_vt_profile_name;
