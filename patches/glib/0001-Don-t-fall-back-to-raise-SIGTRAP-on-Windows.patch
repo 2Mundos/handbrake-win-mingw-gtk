@@ -1,7 +1,7 @@
-From 0cde909bb87cde5477683ab73b2cc0f3c851e1e0 Mon Sep 17 00:00:00 2001
+From 63efa0530b71278900ed8c48af4264e2e0e7be47 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Martin=20Storsj=C3=B6?= <martin@martin.st>
 Date: Tue, 31 Mar 2020 23:11:05 +0300
-Subject: [PATCH 5/8] Don't fall back to raise(SIGTRAP) on Windows
+Subject: [PATCH 1/4] Don't fall back to raise(SIGTRAP) on Windows
 
 When targeting mingw on architectures other than x86, the earlier cases
 don't apply, and the final fallback, raise(SIGTRAP) isn't usable there.

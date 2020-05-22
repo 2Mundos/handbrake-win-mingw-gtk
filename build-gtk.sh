@@ -119,7 +119,7 @@ build_autotools https://download.savannah.gnu.org/releases/freetype/freetype-2.1
 build_autotools https://github.com/libexpat/libexpat/releases/download/R_2_2_9/expat-2.2.9.tar.bz2
 build_autotools https://www.freedesktop.org/software/fontconfig/release/fontconfig-2.13.92.tar.xz --disable-docs
 build_autotools https://github.com/libffi/libffi/releases/download/v3.3/libffi-3.3.tar.gz --disable-symvers
-build_meson https://download.gnome.org/sources/glib/2.64/glib-2.64.2.tar.xz
+build_meson https://download.gnome.org/sources/glib/2.64/glib-2.64.3.tar.xz
 build_autotools https://www.freedesktop.org/software/harfbuzz/release/harfbuzz-2.6.4.tar.xz --with-icu=no autoreconf
 build_autotools https://www.cairographics.org/releases/pixman-0.40.0.tar.gz
 build_autotools https://www.cairographics.org/releases/cairo-1.16.0.tar.xz
