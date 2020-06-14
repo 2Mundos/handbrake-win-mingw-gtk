@@ -14,3 +14,6 @@ Users can target aarch64 (ARM64), i686 or x86_64 when building.
 docker build -t handbrake --build-arg ARCH=aarch64 .
 
 The archive ghb-aarch64.zip will be created at the / directory in the docker image.
+
+## As a convenience we have precompiled binaries built included in this repository, compiled using the script above on a Linux Host.
+
