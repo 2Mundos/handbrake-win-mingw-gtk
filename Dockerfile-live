@@ -19,5 +19,5 @@ COPY generated/ ./generated/
 COPY patches-hb/ ./patches-hb/
 COPY build-handbrake-gtk.sh ./
 COPY strip-install.sh ./
-COPY build-all.sh ./
+COPY build-all.sh build-hb.sh build-deps.sh ./
 
