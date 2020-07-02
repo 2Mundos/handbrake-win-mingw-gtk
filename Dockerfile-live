@@ -11,13 +11,5 @@ RUN apt-get update && \
 
 RUN pip3 install meson==0.54.0
 
-WORKDIR /build
-
-COPY build-gtk.sh cross.meson.in copy-runtime-dlls.sh copy-pregenerated.sh ./
-COPY patches/ ./patches/
-COPY generated/ ./generated/
-COPY patches-hb/ ./patches-hb/
-COPY build-handbrake-gtk.sh ./
-COPY strip-install.sh ./
-COPY build-all.sh build-hb.sh build-deps.sh ./
+ENV ARCH=aarch64
 

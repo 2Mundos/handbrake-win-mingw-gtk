@@ -7,6 +7,7 @@ PREFIX_NATIVE=$(pwd)/native
 PATCHES=$(cd $(dirname $0) && pwd)/patches
 export PKG_CONFIG_LIBDIR=$PREFIX/lib/pkgconfig
 : ${ARCH:=x86_64}
+echo Building for: $ARCH
 
 if [ ! -f cross.meson ]; then
 	case $ARCH in

@@ -3,8 +3,8 @@
 set -e
 
 cd /build
-ARCH=aarch64
-
+export ARCH=aarch64
+echo Building for: $ARCH
 
 cd build-$ARCH && \
     ../build-handbrake-gtk.sh && \
@@ -13,4 +13,4 @@ cd build-$ARCH && \
 cp /build/build-$ARCH/HandBrake/build/HandBrakeCLI.exe /build/build-$ARCH/prefix/bin
 
 cd /build/build-$ARCH/prefix && \
-    zip -9r /ghb-$ARCH.zip *
+    zip -9r /build/ghb-$ARCH.zip *

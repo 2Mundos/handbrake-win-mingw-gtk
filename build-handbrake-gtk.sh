@@ -7,6 +7,7 @@ PREFIX_NATIVE=$(pwd)/native
 PATCHES=$(cd $(dirname $0) && pwd)/patches-hb
 export PKG_CONFIG_LIBDIR=$PREFIX/lib/pkgconfig
 : ${ARCH:=x86_64}
+echo Building for: $ARCH
 
 if [ ! -d HandBrake ]; then
 	git clone https://github.com/HandBrake/HandBrake.git

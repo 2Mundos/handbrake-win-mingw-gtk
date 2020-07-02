@@ -3,9 +3,9 @@
 set -e
 
 cd /build
-ARCH=aarch64
+export ARCH=aarch64
 
-mkdir build-$ARCH && \
+mkdir -p build-$ARCH && \
     cd build-$ARCH && \
     ../build-gtk.sh && \
     ../copy-pregenerated.sh && \
