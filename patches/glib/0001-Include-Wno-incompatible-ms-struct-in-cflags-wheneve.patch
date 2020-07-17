@@ -1,7 +1,7 @@
-From 50abf75e4ec625e92e188b967ed8c97f5fe3cbe0 Mon Sep 17 00:00:00 2001
+From c256faa35f24532d38b769bb897adf555f946137 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Martin=20Storsj=C3=B6?= <martin@martin.st>
 Date: Tue, 31 Mar 2020 22:56:50 +0300
-Subject: [PATCH 3/4] Include -Wno-incompatible-ms-struct in cflags whenever
+Subject: [PATCH 1/2] Include -Wno-incompatible-ms-struct in cflags whenever
  -mms-bitfields is included
 
 Clang gives fatal errors when compiling nontrivial C++ classes, if
@@ -17,16 +17,21 @@ pkg-config file along with -mms-bitfields, but this flag is only
 understood by Clang - making the installed pkg-config file usable
 only by the same compiler that built glib itself.
 
-This hasn't been sent upstream yet, as it is a bit of a kludge.
+This was discussed upstream at
+https://gitlab.gnome.org/GNOME/glib/-/merge_requests/1510,
+but the final solution was to avoid this whole error,
+as was done in Clang in
+https://github.com/llvm/llvm-project/commit/7b3fe969927731c69ba4d8a428442e1e191f49b5,
+which will be part of the Clang 11 release.
 ---
  meson.build | 10 ++++++++++
  1 file changed, 10 insertions(+)
 
 diff --git a/meson.build b/meson.build
-index db57297b9..3e88e8edc 100644
+index 79726d2d7..300d3a300 100644
 --- a/meson.build
 +++ b/meson.build
-@@ -2118,6 +2118,16 @@ if host_system == 'windows' and cc.get_id() != 'msvc' and cc.get_id() != 'clang-
+@@ -2185,6 +2185,16 @@ if host_system == 'windows' and cc.get_id() != 'msvc' and cc.get_id() != 'clang-
    # compiling for Win32 with gcc. It is used for the whole project and exposed
    # in glib-2.0.pc.
    win32_cflags = ['-mms-bitfields']

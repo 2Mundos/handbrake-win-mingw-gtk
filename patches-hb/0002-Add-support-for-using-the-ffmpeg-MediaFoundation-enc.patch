@@ -1,7 +1,7 @@
-From 5ea8cdbf22b87a0e719b5db8edebba1a298adf52 Mon Sep 17 00:00:00 2001
+From 336f9620421d7a36def12e212cb5cacad1e9370b Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Martin=20Storsj=C3=B6?= <martin@martin.st>
 Date: Fri, 8 May 2020 13:18:32 +0300
-Subject: [PATCH 3/3] Add support for using the ffmpeg MediaFoundation encoder
+Subject: [PATCH 2/4] Add support for using the ffmpeg MediaFoundation encoder
  wrapper
 
 This works fine for e.g. the Qualcomm H264 and HEVC encoders on
@@ -23,7 +23,7 @@ or if it doesn't accept the parameters that have been set).
  5 files changed, 170 insertions(+), 4 deletions(-)
 
 diff --git a/libhb/common.c b/libhb/common.c
-index ef067f545..f857529b5 100644
+index 4110e8987..dbb0a86f2 100644
 --- a/libhb/common.c
 +++ b/libhb/common.c
 @@ -255,6 +255,7 @@ hb_encoder_internal_t hb_video_encoders[]  =
@@ -110,7 +110,7 @@ index ef067f545..f857529b5 100644
  
  #ifdef __APPLE__
 diff --git a/libhb/encavcodec.c b/libhb/encavcodec.c
-index e6899412f..4d38dedba 100644
+index 30b5c6d4a..8908c30eb 100644
 --- a/libhb/encavcodec.c
 +++ b/libhb/encavcodec.c
 @@ -45,6 +45,9 @@ struct hb_work_private_s
@@ -167,7 +167,7 @@ index e6899412f..4d38dedba 100644
              }
          }break;
      }
-@@ -319,6 +345,16 @@ int encavcodecInit( hb_work_object_t * w, hb_job_t * job )
+@@ -320,6 +346,16 @@ int encavcodecInit( hb_work_object_t * w, hb_job_t * job )
              av_dict_set( &av_opts, "rc", "vbr_peak", 0 );
              hb_log( "encavcodec: encoding at rc=vbr_peak Bitrate %d", job->vbitrate );
          }
@@ -184,7 +184,7 @@ index e6899412f..4d38dedba 100644
      }
      else
      {
-@@ -400,6 +436,14 @@ int encavcodecInit( hb_work_object_t * w, hb_job_t * job )
+@@ -401,6 +437,14 @@ int encavcodecInit( hb_work_object_t * w, hb_job_t * job )
              }
              hb_log( "encavcodec: encoding at QP %.2f", job->vquality );
          }
@@ -199,7 +199,7 @@ index e6899412f..4d38dedba 100644
          else
          {
              // These settings produce better image quality than
-@@ -571,6 +615,48 @@ int encavcodecInit( hb_work_object_t * w, hb_job_t * job )
+@@ -572,6 +616,48 @@ int encavcodecInit( hb_work_object_t * w, hb_job_t * job )
          av_dict_set(&av_opts, "gops_per_idr", "1", 0);
      }
  
@@ -248,7 +248,7 @@ index e6899412f..4d38dedba 100644
      if( job->pass_id == HB_PASS_ENCODE_1ST ||
          job->pass_id == HB_PASS_ENCODE_2ND )
      {
-@@ -718,6 +804,14 @@ void encavcodecClose( hb_work_object_t * w )
+@@ -719,6 +805,14 @@ void encavcodecClose( hb_work_object_t * w )
          }
          hb_avcodec_free_context(&pv->context);
      }
@@ -263,7 +263,7 @@ index e6899412f..4d38dedba 100644
      if( pv->file )
      {
          fclose( pv->file );
-@@ -878,6 +972,24 @@ static void Encode( hb_work_object_t *w, hb_buffer_t *in,
+@@ -879,6 +973,24 @@ static void Encode( hb_work_object_t *w, hb_buffer_t *in,
      frame.linesize[1] = in->plane[1].stride;
      frame.linesize[2] = in->plane[2].stride;
  
@@ -288,7 +288,7 @@ index e6899412f..4d38dedba 100644
      if (in->s.new_chap > 0 && pv->job->chapter_markers)
      {
          /* chapters have to start with an IDR frame so request that this
-@@ -1086,6 +1198,10 @@ const char* const* hb_av_preset_get_names(int encoder)
+@@ -1087,6 +1199,10 @@ const char* const* hb_av_preset_get_names(int encoder)
          case HB_VCODEC_FFMPEG_VT_H265:
              return h26x_vt_preset_name;
  
@@ -299,7 +299,7 @@ index e6899412f..4d38dedba 100644
          default:
              return NULL;
      }
-@@ -1103,6 +1219,10 @@ const char* const* hb_av_profile_get_names(int encoder)
+@@ -1104,6 +1220,10 @@ const char* const* hb_av_profile_get_names(int encoder)
              return h264_vt_profile_name;
          case HB_VCODEC_FFMPEG_VT_H265:
              return h265_vt_profile_name;
@@ -311,7 +311,7 @@ index e6899412f..4d38dedba 100644
           default:
               return NULL;
 diff --git a/libhb/handbrake/common.h b/libhb/handbrake/common.h
-index 3d91be0da..c946fa1a5 100644
+index 338084393..35d987dd5 100644
 --- a/libhb/handbrake/common.h
 +++ b/libhb/handbrake/common.h
 @@ -510,7 +510,7 @@ struct hb_job_s
@@ -352,10 +352,10 @@ index 3d91be0da..c946fa1a5 100644
  /* define an invalid CQ value compatible with all CQ-capable codecs */
  #define HB_INVALID_VIDEO_QUALITY (-1000.)
 diff --git a/libhb/muxavformat.c b/libhb/muxavformat.c
-index be5bf7b5d..3bea97bfd 100644
+index 6a11d866c..9fd5afa24 100644
 --- a/libhb/muxavformat.c
 +++ b/libhb/muxavformat.c
-@@ -267,6 +267,7 @@ static int avformatInit( hb_mux_object_t * m )
+@@ -268,6 +268,7 @@ static int avformatInit( hb_mux_object_t * m )
          case HB_VCODEC_FFMPEG_VCE_H264:
          case HB_VCODEC_FFMPEG_NVENC_H264:
          case HB_VCODEC_FFMPEG_VT_H264:
@@ -363,7 +363,7 @@ index be5bf7b5d..3bea97bfd 100644
              track->st->codecpar->codec_id = AV_CODEC_ID_H264;
              if (job->mux == HB_MUX_AV_MP4 && job->inline_parameter_sets)
              {
-@@ -403,6 +404,7 @@ static int avformatInit( hb_mux_object_t * m )
+@@ -404,6 +405,7 @@ static int avformatInit( hb_mux_object_t * m )
          case HB_VCODEC_FFMPEG_VCE_H265:
          case HB_VCODEC_FFMPEG_NVENC_H265:
          case HB_VCODEC_FFMPEG_VT_H265:
@@ -372,7 +372,7 @@ index be5bf7b5d..3bea97bfd 100644
              if (job->mux == HB_MUX_AV_MP4 && job->inline_parameter_sets)
              {
 diff --git a/libhb/work.c b/libhb/work.c
-index 65c21eb5e..781885a59 100644
+index d714c988f..57499eafb 100644
 --- a/libhb/work.c
 +++ b/libhb/work.c
 @@ -297,6 +297,16 @@ hb_work_object_t* hb_video_encoder(hb_handle_t *h, int vcodec)

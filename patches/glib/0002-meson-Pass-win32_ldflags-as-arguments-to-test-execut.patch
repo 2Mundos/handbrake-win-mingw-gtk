@@ -1,7 +1,7 @@
-From 1858f9f2edb44e4d56c17c6e602f7f06822b1845 Mon Sep 17 00:00:00 2001
+From 04fc6ed0ec242897e956704c6d0435eeba1fd6b5 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Martin=20Storsj=C3=B6?= <martin@martin.st>
 Date: Tue, 31 Mar 2020 22:50:43 +0300
-Subject: [PATCH 4/4] meson: Pass win32_ldflags as arguments to test
+Subject: [PATCH 2/2] meson: Pass win32_ldflags as arguments to test
  executables
 
 This makes sure to link the test executables against ole32.dll.
@@ -20,7 +20,7 @@ with older Meson versions.
  1 file changed, 1 insertion(+)
 
 diff --git a/gio/tests/meson.build b/gio/tests/meson.build
-index 48891b06b..3c29e5aea 100644
+index c7c3e3035..f30cfd6a5 100644
 --- a/gio/tests/meson.build
 +++ b/gio/tests/meson.build
 @@ -756,6 +756,7 @@ foreach test_name, extra_args : gio_tests

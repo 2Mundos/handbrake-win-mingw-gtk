@@ -7,7 +7,6 @@ PREFIX_NATIVE=$(pwd)/native
 PATCHES=$(cd $(dirname $0) && pwd)/patches
 export PKG_CONFIG_LIBDIR=$PREFIX/lib/pkgconfig
 : ${ARCH:=x86_64}
-echo Building for: $ARCH
 
 if [ ! -f cross.meson ]; then
 	case $ARCH in
@@ -120,7 +119,7 @@ build_autotools https://download.savannah.gnu.org/releases/freetype/freetype-2.1
 build_autotools https://github.com/libexpat/libexpat/releases/download/R_2_2_9/expat-2.2.9.tar.bz2
 build_autotools https://www.freedesktop.org/software/fontconfig/release/fontconfig-2.13.92.tar.xz --disable-docs
 build_autotools https://github.com/libffi/libffi/releases/download/v3.3/libffi-3.3.tar.gz --disable-symvers
-build_meson https://download.gnome.org/sources/glib/2.64/glib-2.64.3.tar.xz
+build_meson https://download.gnome.org/sources/glib/2.65/glib-2.65.0.tar.xz
 build_autotools https://www.freedesktop.org/software/harfbuzz/release/harfbuzz-2.6.4.tar.xz --with-icu=no autoreconf
 build_autotools https://www.cairographics.org/releases/pixman-0.40.0.tar.gz
 build_autotools https://www.cairographics.org/releases/cairo-1.16.0.tar.xz
@@ -128,7 +127,7 @@ build_meson https://github.com/fribidi/fribidi/releases/download/v1.0.9/fribidi-
 build_meson https://download.gnome.org/sources/pango/1.44/pango-1.44.7.tar.xz -Dintrospection=false
 build_meson https://download.gnome.org/sources/gdk-pixbuf/2.40/gdk-pixbuf-2.40.0.tar.xz "-Dgir=false -Dx11=false"
 build_meson https://download.gnome.org/sources/atk/2.36/atk-2.36.0.tar.xz -Dintrospection=false
-build_meson https://download.gnome.org/sources/gtk+/3.24/gtk+-3.24.18.tar.xz -Dintrospection=false
+build_meson https://download.gnome.org/sources/gtk+/3.24/gtk+-3.24.18.tar.xz "-Dintrospection=false -Ddemos=false -Dbuild-examples=false -Dbuild-tests=false"
 build_autotools https://icon-theme.freedesktop.org/releases/hicolor-icon-theme-0.17.tar.xz
 build_autotools https://download.gnome.org/sources/adwaita-icon-theme/3.36/adwaita-icon-theme-3.36.1.tar.xz
 

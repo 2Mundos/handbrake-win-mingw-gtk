@@ -3,16 +3,14 @@
 set -e
 
 PREFIX=$(pwd)/prefix
-PREFIX_NATIVE=$(pwd)/native
 PATCHES=$(cd $(dirname $0) && pwd)/patches-hb
 export PKG_CONFIG_LIBDIR=$PREFIX/lib/pkgconfig
 : ${ARCH:=x86_64}
-echo Building for: $ARCH
 
 if [ ! -d HandBrake ]; then
 	git clone https://github.com/HandBrake/HandBrake.git
 	cd HandBrake
-	git checkout ab3ee6e7df7ce2da4effacf1b1420edadaf04ba9
+	git checkout 2513a7306223c71a199bacc2502b8227272bec4f
 	git am -3 $PATCHES/*.patch
 else
 	cd HandBrake

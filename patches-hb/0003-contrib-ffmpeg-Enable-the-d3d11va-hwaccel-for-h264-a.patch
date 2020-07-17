@@ -1,0 +1,28 @@
+From bb6e1d8d24a0641dc81f5d2e508337f24399c781 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Martin=20Storsj=C3=B6?= <martin@martin.st>
+Date: Thu, 2 Jul 2020 23:53:00 +0300
+Subject: [PATCH 3/4] contrib: ffmpeg: Enable the d3d11va hwaccel for h264 and
+ hevc
+
+---
+ contrib/ffmpeg/module.defs | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/contrib/ffmpeg/module.defs b/contrib/ffmpeg/module.defs
+index 31ccc4a3d..294ad604b 100644
+--- a/contrib/ffmpeg/module.defs
++++ b/contrib/ffmpeg/module.defs
+@@ -106,6 +106,10 @@ else ifeq (1-mingw,$(HOST.cross)-$(HOST.system))
+         --arch=$(HOST.machine) \
+         --cross-prefix=$(HOST.cross.prefix) \
+         --pkg-config=$(PKGCONFIG.exe) \
++        --enable-hwaccel=h264_d3d11va \
++        --enable-hwaccel=hevc_d3d11va \
++        --enable-hwaccel=h264_d3d11va2 \
++        --enable-hwaccel=hevc_d3d11va2 \
+         --enable-encoder=h264_mf \
+         --enable-encoder=hevc_mf
+     FFMPEG.GCC.args.extra += -fno-common
+-- 
+2.17.1
+

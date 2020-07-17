@@ -1,0 +1,409 @@
+From ac2ccc2039a678ffd86ea6e18817012e6dda2b71 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Martin=20Storsj=C3=B6?= <martin@martin.st>
+Date: Mon, 6 Jul 2020 00:14:55 +0300
+Subject: [PATCH 4/4] Use d3d11va hwaccel decoding if available
+
+TODO:
+- The code is written kind of generally so it could support most ffmpeg
+  hwaccels, but it only tries to use the d3d11va one for now.
+- Unify the setting key with the QSV HW decoding setting?
+- Hook up the setting in the WPF GUI
+---
+ gtk/src/ghb3.ui                | 20 +++++++
+ gtk/src/internal_defaults.json |  1 +
+ libhb/common.c                 |  2 +
+ libhb/decavcodec.c             | 99 +++++++++++++++++++++++++++++++++-
+ libhb/handbrake/common.h       |  3 ++
+ libhb/hb_json.c                |  8 ++-
+ libhb/preset.c                 |  5 ++
+ libhb/scan.c                   |  5 +-
+ preset/preset_template.json    |  1 +
+ test/test.c                    | 10 ++++
+ 10 files changed, 149 insertions(+), 5 deletions(-)
+
+diff --git a/gtk/src/ghb3.ui b/gtk/src/ghb3.ui
+index c5363eb4f..8df9aaaa9 100644
+--- a/gtk/src/ghb3.ui
++++ b/gtk/src/ghb3.ui
+@@ -4940,6 +4940,26 @@ this setting is of little value here.</property>
+                                 <property name="height">1</property>
+                               </packing>
+                             </child>
++                            <child>
++                              <object class="GtkCheckButton" id="VideoHWDecode">
++                                <property name="label" translatable="yes">HW Decoding</property>
++                                <property name="visible">True</property>
++                                <property name="can_focus">True</property>
++                                <property name="receives_default">False</property>
++                                <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
++                                <property name="tooltip_text" translatable="yes">Use hardware decoding while transcoding.</property>
++                                <property name="halign">start</property>
++                                <property name="margin-start">2</property>
++                                <property name="draw_indicator">True</property>
++                                <signal name="toggled" handler="video_setting_changed_cb" swapped="no"/>
++                              </object>
++                              <packing>
++                                <property name="top_attach">1</property>
++                                <property name="left_attach">4</property>
++                                <property name="width">1</property>
++                                <property name="height">1</property>
++                              </packing>
++                            </child>
+                             <child>
+                               <object class="GtkLabel" id="VideoProfileLabel">
+                                 <property name="visible">True</property>
+diff --git a/gtk/src/internal_defaults.json b/gtk/src/internal_defaults.json
+index 533d583cf..7577b05b6 100644
+--- a/gtk/src/internal_defaults.json
++++ b/gtk/src/internal_defaults.json
+@@ -66,6 +66,7 @@
+         "VideoFramerateVFR": true,
+         "PictureDeinterlaceDecomb": false,
+         "VideoPresetSlider": 0,
++        "VideoHWDecode": true,
+         "x264ZeroLatency": false,
+         "x264FastDecode": false
+     },
+diff --git a/libhb/common.c b/libhb/common.c
+index dbb0a86f2..c80ba8b94 100644
+--- a/libhb/common.c
++++ b/libhb/common.c
+@@ -3845,6 +3845,8 @@ static void job_setup(hb_job_t * job, hb_title_t * title)
+     job->qsv.decode                = !!(title->video_decode_support &
+                                         HB_DECODE_SUPPORT_QSV);
+ #endif
++    job->hwaccel_decode            = !!(title->video_decode_support &
++                                        HB_DECODE_SUPPORT_HWACCEL);
+ }
+ 
+ int hb_output_color_prim(hb_job_t * job)
+diff --git a/libhb/decavcodec.c b/libhb/decavcodec.c
+index d562b295e..80e01b0ef 100644
+--- a/libhb/decavcodec.c
++++ b/libhb/decavcodec.c
+@@ -153,6 +153,9 @@ struct hb_work_private_s
+     } qsv;
+ #endif
+ 
++    enum AVPixelFormat     hw_pix_fmt;
++    AVFrame              * hw_frame;
++
+     hb_list_t            * list_subtitle;
+ };
+ 
+@@ -363,6 +366,7 @@ static void closePrivData( hb_work_private_t ** ppv )
+                     pv->context->codec->name, pv->nframes, pv->decode_errors);
+         }
+         av_frame_free(&pv->frame);
++        av_frame_free(&pv->hw_frame);
+         close_video_filters(pv);
+         if ( pv->parser )
+         {
+@@ -393,6 +397,8 @@ static void closePrivData( hb_work_private_t ** ppv )
+         }
+         if ( pv->context )
+         {
++            if (pv->context->hw_device_ctx)
++                av_buffer_unref(&pv->context->hw_device_ctx);
+             hb_avcodec_free_context(&pv->context);
+         }
+         hb_audio_resample_free(pv->resample);
+@@ -1274,6 +1280,10 @@ static int decodeFrame( hb_work_private_t * pv, packet_info_t * packet_info )
+     int got_picture = 0, oldlevel = 0, ret;
+     AVPacket avp;
+     reordered_data_t * reordered;
++    AVFrame *recv_frame = pv->frame;
++
++    if (pv->hw_frame)
++        recv_frame = pv->hw_frame;
+ 
+     if ( global_verbosity_level <= 1 )
+     {
+@@ -1334,7 +1344,7 @@ static int decodeFrame( hb_work_private_t * pv, packet_info_t * packet_info )
+ 
+     do
+     {
+-        ret = avcodec_receive_frame(pv->context, pv->frame);
++        ret = avcodec_receive_frame(pv->context, recv_frame);
+         if (ret < 0 && ret != AVERROR(EAGAIN) && ret != AVERROR_EOF)
+         {
+             ++pv->decode_errors;
+@@ -1345,6 +1355,21 @@ static int decodeFrame( hb_work_private_t * pv, packet_info_t * packet_info )
+         }
+         got_picture = 1;
+ 
++        if (pv->hw_frame)
++        {
++            ret = av_hwframe_transfer_data(pv->frame, pv->hw_frame, 0);
++            pv->frame->pts = pv->hw_frame->pts;
++            av_frame_unref(pv->hw_frame);
++
++            if (ret < 0)
++            {
++                hb_error("Error transferring data to system memory\n");
++                break;
++            }
++            // In this case, the frame might be NV12 instead of YUV420P,
++            // but the filter chain seems to handle that transparently.
++        }
++
+         // recompute the frame/field duration, because sometimes it changes
+         compute_frame_duration( pv );
+         filter_video(pv);
+@@ -1358,6 +1383,21 @@ static int decodeFrame( hb_work_private_t * pv, packet_info_t * packet_info )
+     return got_picture;
+ }
+ 
++static enum AVPixelFormat get_hw_format(AVCodecContext *s, const enum AVPixelFormat *pix_fmts)
++{
++    hb_work_private_t *pv = s->opaque;
++    const enum AVPixelFormat *p;
++
++    for (p = pix_fmts; *p != -1; p++)
++    {
++        if (*p == pv->hw_pix_fmt)
++            return *p;
++    }
++
++    hb_error( "Failed to get HW surface format\n" );
++    return AV_PIX_FMT_NONE;
++}
++
+ static int decavcodecvInit( hb_work_object_t * w, hb_job_t * job )
+ {
+ 
+@@ -1444,6 +1484,45 @@ static int decavcodecvInit( hb_work_object_t * w, hb_job_t * job )
+     pv->context->err_recognition = AV_EF_CRCCHECK;
+     pv->context->error_concealment = FF_EC_GUESS_MVS|FF_EC_DEBLOCK;
+ 
++    if ( job && job->hwaccel_decode )
++    {
++        enum AVHWDeviceType hw_type = av_hwdevice_find_type_by_name("d3d11va");
++        pv->hw_pix_fmt = AV_PIX_FMT_NONE;
++        if (hw_type != AV_HWDEVICE_TYPE_NONE) {
++            int i;
++            for (i = 0;; i++)
++            {
++                const AVCodecHWConfig *config = avcodec_get_hw_config(pv->codec, i);
++                if (!config)
++                    break;
++                if (config->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX &&
++                    config->device_type == hw_type)
++                {
++                    pv->hw_pix_fmt = config->pix_fmt;
++                    break;
++                }
++            }
++        }
++        if (pv->hw_pix_fmt != AV_PIX_FMT_NONE)
++        {
++            AVBufferRef *hw_device_ctx;
++            int err;
++            if ((err = av_hwdevice_ctx_create(&hw_device_ctx, hw_type, NULL, NULL, 0)) < 0) {
++                hb_error( "decavcodecvInit: failed to create hwdevice" );
++            } else {
++                pv->context->get_format = get_hw_format;
++                pv->context->opaque = pv;
++                pv->context->hw_device_ctx = hw_device_ctx;
++                pv->hw_frame = av_frame_alloc();
++                if (pv->hw_frame == NULL)
++                {
++                    hb_log("decavcodecvInit: av_frame_alloc failed");
++                    return 1;
++                }
++            }
++        }
++    }
++
+     if ( pv->title->opaque_priv )
+     {
+         AVFormatContext *ic = (AVFormatContext*)pv->title->opaque_priv;
+@@ -2028,6 +2107,7 @@ static int get_color_matrix(int colorspace, hb_geometry_t geometry)
+ static int decavcodecvInfo( hb_work_object_t *w, hb_work_info_t *info )
+ {
+     hb_work_private_t *pv = w->private_data;
++    enum AVHWDeviceType hw_type;
+ 
+     int clock_min, clock_max, clock;
+     hb_video_framerate_get_limits(&clock_min, &clock_max, &clock);
+@@ -2080,6 +2160,23 @@ static int decavcodecvInfo( hb_work_object_t *w, hb_work_info_t *info )
+ 
+     info->video_decode_support = HB_DECODE_SUPPORT_SW;
+ 
++    hw_type = av_hwdevice_find_type_by_name("d3d11va");
++    if (hw_type != AV_HWDEVICE_TYPE_NONE)
++    {
++        int i;
++        for (i = 0;; i++)
++        {
++            const AVCodecHWConfig *config = avcodec_get_hw_config(pv->context->codec, i);
++            if (!config)
++                break;
++            if (config->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX &&
++                config->device_type == hw_type)
++            {
++                info->video_decode_support |= HB_DECODE_SUPPORT_HWACCEL;
++                break;
++            }
++        }
++    }
+ #if HB_PROJECT_FEATURE_QSV
+     if (avcodec_find_decoder_by_name(hb_qsv_decode_get_codec_name(pv->context->codec_id)))
+     {
+diff --git a/libhb/handbrake/common.h b/libhb/handbrake/common.h
+index 35d987dd5..21286efe8 100644
+--- a/libhb/handbrake/common.h
++++ b/libhb/handbrake/common.h
+@@ -720,6 +720,8 @@ struct hb_job_s
+         } enc_info;
+     } qsv;
+ 
++    int hwaccel_decode;
++
+ #ifdef __LIBHB__
+     /* Internal data */
+     hb_handle_t   * h;
+@@ -1107,6 +1109,7 @@ struct hb_title_s
+     int           video_decode_support;
+ #define HB_DECODE_SUPPORT_SW    0x01 // software (libavcodec or mpeg2dec)
+ #define HB_DECODE_SUPPORT_QSV   0x02 // Intel Quick Sync Video
++#define HB_DECODE_SUPPORT_HWACCEL 0x04 // HWAccel
+ 
+     hb_metadata_t * metadata;
+ 
+diff --git a/libhb/hb_json.c b/libhb/hb_json.c
+index e834d06a0..8789e68d2 100644
+--- a/libhb/hb_json.c
++++ b/libhb/hb_json.c
+@@ -550,8 +550,8 @@ hb_dict_t* hb_job_to_dict( const hb_job_t * job )
+     "s:{s:o, s:o, s:o,},"
+     // PAR {Num, Den}
+     "s:{s:o, s:o},"
+-    // Video {Encoder, QSV {Decode, AsyncDepth}}
+-    "s:{s:o, s:{s:o, s:o}},"
++    // Video {Encoder, Hwaccel Decode, QSV {Decode, AsyncDepth}}
++    "s:{s:o, s:o, s:{s:o, s:o}},"
+     // Audio {CopyMask, FallbackEncoder, AudioList []}
+     "s:{s:[], s:o, s:[]},"
+     // Subtitles {Search {Enable, Forced, Default, Burn}, SubtitleList []}
+@@ -577,6 +577,7 @@ hb_dict_t* hb_job_to_dict( const hb_job_t * job )
+             "Den",              hb_value_int(job->par.den),
+         "Video",
+             "Encoder",          hb_value_int(job->vcodec),
++            "HWDecode",         hb_value_bool(job->hwaccel_decode),
+             "QSV",
+                 "Decode",       hb_value_bool(job->qsv.decode),
+                 "AsyncDepth",   hb_value_int(job->qsv.async_depth),
+@@ -1059,12 +1060,14 @@ hb_job_t* hb_dict_to_job( hb_handle_t * h, hb_dict_t *dict )
+     //       ColorFormat, ColorRange,
+     //       ColorPrimaries, ColorTransfer, ColorMatrix,
+     //       ColorPrimariesOverride, ColorTransferOverride, ColorMatrixOverride,
++    //       HWDecode,
+     //       QSV {Decode, AsyncDepth}}
+     "s:{s:o, s?f, s?i, s?s, s?s, s?s, s?s, s?s,"
+     "   s?b, s?b,"
+     "   s?i, s?i,"
+     "   s?i, s?i, s?i,"
+     "   s?i, s?i, s?i,"
++    "   s?b,"
+     "   s?{s?b, s?i}},"
+     // Audio {CopyMask, FallbackEncoder, AudioList}
+     "s?{s?o, s?o, s?o},"
+@@ -1116,6 +1119,7 @@ hb_job_t* hb_dict_to_job( hb_handle_t * h, hb_dict_t *dict )
+             "ColorPrimariesOverride", unpack_i(&job->color_prim_override),
+             "ColorTransferOverride",  unpack_i(&job->color_transfer_override),
+             "ColorMatrixOverride",    unpack_i(&job->color_matrix_override),
++            "HWDecode",             unpack_b(&job->hwaccel_decode),
+             "QSV",
+                 "Decode",           unpack_b(&job->qsv.decode),
+                 "AsyncDepth",       unpack_i(&job->qsv.async_depth),
+diff --git a/libhb/preset.c b/libhb/preset.c
+index e771ded86..ca2934234 100644
+--- a/libhb/preset.c
++++ b/libhb/preset.c
+@@ -1778,6 +1778,11 @@ int hb_preset_apply_video(const hb_dict_t *preset, hb_dict_t *job_dict)
+             hb_dict_remove(video_dict, "Quality");
+         }
+     }
++    if ((value = hb_dict_get(preset, "VideoHWDecode")) != NULL)
++    {
++        hb_dict_set(video_dict, "HWDecode",
++                    hb_value_xform(value, HB_VALUE_TYPE_BOOL));
++    }
+     qsv = hb_dict_get(video_dict, "QSV");
+     if (qsv == NULL)
+     {
+diff --git a/libhb/scan.c b/libhb/scan.c
+index 808103776..210e0bb5f 100644
+--- a/libhb/scan.c
++++ b/libhb/scan.c
+@@ -1093,9 +1093,10 @@ skip_preview:
+ 
+         if (title->video_decode_support != HB_DECODE_SUPPORT_SW)
+         {
+-            hb_log("scan: supported video decoders:%s%s",
++            hb_log("scan: supported video decoders:%s%s%s",
+                    !(title->video_decode_support & HB_DECODE_SUPPORT_SW)    ? "" : " avcodec",
+-                   !(title->video_decode_support & HB_DECODE_SUPPORT_QSV)   ? "" : " qsv");
++                   !(title->video_decode_support & HB_DECODE_SUPPORT_QSV)   ? "" : " qsv",
++                   !(title->video_decode_support & HB_DECODE_SUPPORT_HWACCEL)?"" : " hwaccel");
+         }
+ 
+         if( interlaced_preview_count >= ( npreviews / 2 ) )
+diff --git a/preset/preset_template.json b/preset/preset_template.json
+index d418cb339..2cb2988cb 100644
+--- a/preset/preset_template.json
++++ b/preset/preset_template.json
+@@ -109,6 +109,7 @@
+         "VideoQualityType": 2,
+         "VideoQualitySlider": 20.0,
+         "VideoQSVDecode": false,
++        "VideoHWDecode": false,
+         "VideoTwoPass": false,
+         "VideoTurboTwoPass": false,
+         "x264Option": "",
+diff --git a/test/test.c b/test/test.c
+index 6fbc6ce97..93fefe3bb 100644
+--- a/test/test.c
++++ b/test/test.c
+@@ -197,6 +197,7 @@ static uint64_t min_title_duration = 10;
+ static int      qsv_async_depth    = -1;
+ static int      qsv_decode         = -1;
+ #endif
++static int      hw_decode          = -1;
+ 
+ /* Exit cleanly on Ctrl-C */
+ static volatile hb_error_code done_error = HB_ERROR_NONE;
+@@ -1466,6 +1467,9 @@ static void ShowHelp()
+ "                           timing if it's below that rate.\n"
+ "                           If none of these flags are given, the default\n"
+ "                           is --pfr when -r is given and --vfr otherwise\n"
++"   --enable-hw-decoding    Force hardware decoding of the video track\n"
++"   --disable-hw-decoding   Disable hardware decoding of the video track,\n"
++"                           forcing software decoding instead\n"
+ "\n"
+ "\n"
+ "Audio Options ----------------------------------------------------------------\n"
+@@ -2183,6 +2187,8 @@ static int ParseOptions( int argc, char ** argv )
+             { "disable-qsv-decoding", no_argument,       &qsv_decode, 0,                  },
+             { "enable-qsv-decoding",  no_argument,       &qsv_decode, 1,                  },
+ #endif
++            { "disable-hw-decoding", no_argument,        &hw_decode, 0, },
++            { "enable-hw-decoding",  no_argument,        &hw_decode, 1, },
+ 
+             { "format",      required_argument, NULL,    'f' },
+             { "input",       required_argument, NULL,    'i' },
+@@ -4169,6 +4175,10 @@ static hb_dict_t * PreparePreset(const char *preset_name)
+         hb_dict_set(preset, "VideoQSVDecode", hb_value_int(qsv_decode));
+     }
+ #endif
++    if (hw_decode != -1)
++    {
++        hb_dict_set(preset, "VideoHWDecode", hb_value_int(hw_decode));
++    }
+     if (maxWidth > 0)
+     {
+         hb_dict_set(preset, "PictureWidth", hb_value_int(maxWidth));
+-- 
+2.17.1
+
