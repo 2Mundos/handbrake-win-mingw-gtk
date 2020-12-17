@@ -1,0 +1,864 @@
+From 9c243754e5628437635e275b2eabac244e289446 Mon Sep 17 00:00:00 2001
+From: Mauricio Piacentini <mpiacentini@2mundos.net>
+Date: Thu, 17 Dec 2020 06:15:23 -0300
+Subject: [PATCH] Enable Media Foundation Encoders and Decoders with HW accel
+
+---
+ contrib/ffmpeg/module.defs     |   8 ++-
+ gtk/configure.ac               |   2 +-
+ gtk/src/ghb3.ui                |  20 ++++++
+ gtk/src/internal_defaults.json |   1 +
+ libhb/common.c                 |  31 +++++++++
+ libhb/decavcodec.c             |  99 ++++++++++++++++++++++++++-
+ libhb/encavcodec.c             | 120 +++++++++++++++++++++++++++++++++
+ libhb/handbrake/common.h       |  13 ++--
+ libhb/hb_json.c                |   8 ++-
+ libhb/module.defs              |   2 +-
+ libhb/muxavformat.c            |   2 +
+ libhb/preset.c                 |   5 ++
+ libhb/scan.c                   |   5 +-
+ libhb/work.c                   |  15 +++++
+ preset/preset_template.json    |   1 +
+ test/module.defs               |   2 +-
+ test/test.c                    |  10 +++
+ 17 files changed, 331 insertions(+), 13 deletions(-)
+
+diff --git a/contrib/ffmpeg/module.defs b/contrib/ffmpeg/module.defs
+index ebddcf19a..545b2421c 100644
+--- a/contrib/ffmpeg/module.defs
++++ b/contrib/ffmpeg/module.defs
+@@ -111,7 +111,13 @@ else ifeq (1-mingw,$(HOST.cross)-$(HOST.system))
+         --target-os=mingw32 \
+         --arch=$(HOST.machine) \
+         --cross-prefix=$(HOST.cross.prefix) \
+-        --pkg-config=$(PKGCONFIG.exe)
++        --pkg-config=$(PKGCONFIG.exe) \
++        --enable-hwaccel=h264_d3d11va \
++        --enable-hwaccel=hevc_d3d11va \
++        --enable-hwaccel=h264_d3d11va2 \
++        --enable-hwaccel=hevc_d3d11va2 \
++        --enable-encoder=h264_mf \
++        --enable-encoder=hevc_mf
+     FFMPEG.GCC.args.extra += -fno-common
+ endif
+ 
+diff --git a/gtk/configure.ac b/gtk/configure.ac
+index 06435c4fc..a9a07c749 100644
+--- a/gtk/configure.ac
++++ b/gtk/configure.ac
+@@ -231,7 +231,7 @@ case $host in
+ 		if test "x$use_libpthread" = "xyes" ; then
+ 			HB_LIBS="$HB_LIBS -lpthread"
+ 		fi
+-		HB_LIBS="$HB_LIBS -lbcrypt -lregex -luuid -lole32"
++		HB_LIBS="$HB_LIBS -lbcrypt -lregex -luuid -lole32 -lmfplat -lstrmiids"
+ 		;;
+ 	*-*-freebsd*)
+ 		HB_LIBS="$HB_LIBS -lpthread"
+diff --git a/gtk/src/ghb3.ui b/gtk/src/ghb3.ui
+index c5363eb4f..8df9aaaa9 100644
+--- a/gtk/src/ghb3.ui
++++ b/gtk/src/ghb3.ui
+@@ -4940,6 +4940,26 @@ this setting is of little value here.</property>
+                                 <property name="height">1</property>
+                               </packing>
+                             </child>
++                            <child>
++                              <object class="GtkCheckButton" id="VideoHWDecode">
++                                <property name="label" translatable="yes">HW Decoding</property>
++                                <property name="visible">True</property>
++                                <property name="can_focus">True</property>
++                                <property name="receives_default">False</property>
++                                <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
++                                <property name="tooltip_text" translatable="yes">Use hardware decoding while transcoding.</property>
++                                <property name="halign">start</property>
++                                <property name="margin-start">2</property>
++                                <property name="draw_indicator">True</property>
++                                <signal name="toggled" handler="video_setting_changed_cb" swapped="no"/>
++                              </object>
++                              <packing>
++                                <property name="top_attach">1</property>
++                                <property name="left_attach">4</property>
++                                <property name="width">1</property>
++                                <property name="height">1</property>
++                              </packing>
++                            </child>
+                             <child>
+                               <object class="GtkLabel" id="VideoProfileLabel">
+                                 <property name="visible">True</property>
+diff --git a/gtk/src/internal_defaults.json b/gtk/src/internal_defaults.json
+index 533d583cf..7577b05b6 100644
+--- a/gtk/src/internal_defaults.json
++++ b/gtk/src/internal_defaults.json
+@@ -66,6 +66,7 @@
+         "VideoFramerateVFR": true,
+         "PictureDeinterlaceDecomb": false,
+         "VideoPresetSlider": 0,
++        "VideoHWDecode": true,
+         "x264ZeroLatency": false,
+         "x264FastDecode": false
+     },
+diff --git a/libhb/common.c b/libhb/common.c
+index 941dd84b5..56598d50e 100644
+--- a/libhb/common.c
++++ b/libhb/common.c
+@@ -58,11 +58,13 @@ enum
+     HB_GID_VCODEC_H264_QSV,
+     HB_GID_VCODEC_H264_VCE,
+     HB_GID_VCODEC_H264_VT,
++    HB_GID_VCODEC_H264_MF,
+     HB_GID_VCODEC_H264_X264,
+     HB_GID_VCODEC_H265_NVENC,
+     HB_GID_VCODEC_H265_QSV,
+     HB_GID_VCODEC_H265_VCE,
+     HB_GID_VCODEC_H265_VT,
++    HB_GID_VCODEC_H265_MF,
+     HB_GID_VCODEC_H265_X265,
+     HB_GID_VCODEC_MPEG2,
+     HB_GID_VCODEC_MPEG4,
+@@ -264,6 +266,7 @@ hb_encoder_internal_t hb_video_encoders[]  =
+     { { "H.264 (AMD VCE)",     "vce_h264",   "H.264 (AMD VCE)",      HB_VCODEC_FFMPEG_VCE_H264,   HB_MUX_MASK_MP4|HB_MUX_MASK_MKV, }, NULL, 1, HB_GID_VCODEC_H264_VCE,   },
+     { { "H.264 (NVEnc)",       "nvenc_h264", "H.264 (NVEnc)",      HB_VCODEC_FFMPEG_NVENC_H264, HB_MUX_MASK_MP4|HB_MUX_MASK_MKV, }, NULL, 1, HB_GID_VCODEC_H264_NVENC,   },
+     { { "H.264 (VideoToolbox)","vt_h264",    "H.264 (libavcodec)",      HB_VCODEC_FFMPEG_VT_H264,    HB_MUX_MASK_MP4|HB_MUX_MASK_MKV, }, NULL, 1, HB_GID_VCODEC_H264_VT,   },
++    { { "H.264 (MediaFoundation)","mf_h264", "H.264 (MediaFoundation)", HB_VCODEC_FFMPEG_MF_H264,    HB_MUX_MASK_MP4|HB_MUX_MASK_MKV, }, NULL, 1, HB_GID_VCODEC_H264_MF,   },
+     { { "H.265 (x265)",        "x265",       "H.265 (libx265)",         HB_VCODEC_X265_8BIT,         HB_MUX_AV_MP4|HB_MUX_AV_MKV,   }, NULL, 1, HB_GID_VCODEC_H265_X265,   },
+     { { "H.265 10-bit (x265)", "x265_10bit", "H.265 10-bit (libx265)",  HB_VCODEC_X265_10BIT,        HB_MUX_AV_MP4|HB_MUX_AV_MKV,   }, NULL, 1, HB_GID_VCODEC_H265_X265,   },
+     { { "H.265 12-bit (x265)", "x265_12bit", "H.265 12-bit (libx265)",  HB_VCODEC_X265_12BIT,        HB_MUX_AV_MP4|HB_MUX_AV_MKV,   }, NULL, 1, HB_GID_VCODEC_H265_X265,   },
+@@ -273,6 +276,7 @@ hb_encoder_internal_t hb_video_encoders[]  =
+     { { "H.265 (AMD VCE)",     "vce_h265",   "H.265 (AMD VCE)",      HB_VCODEC_FFMPEG_VCE_H265,   HB_MUX_MASK_MP4|HB_MUX_MASK_MKV, }, NULL, 1, HB_GID_VCODEC_H265_VCE,   },
+     { { "H.265 (NVEnc)",       "nvenc_h265", "H.265 (NVEnc)",      HB_VCODEC_FFMPEG_NVENC_H265, HB_MUX_MASK_MP4|HB_MUX_MASK_MKV, }, NULL, 1, HB_GID_VCODEC_H265_NVENC,   },
+     { { "H.265 (VideoToolbox)","vt_h265",    "H.265 (libavcodec)",      HB_VCODEC_FFMPEG_VT_H265,    HB_MUX_MASK_MP4|HB_MUX_MASK_MKV, }, NULL, 1, HB_GID_VCODEC_H265_VT,   },
++    { { "H.265 (MediaFoundation)","mf_h265", "H.265 (MediaFoundation)", HB_VCODEC_FFMPEG_MF_H265,    HB_MUX_MASK_MP4|HB_MUX_MASK_MKV, }, NULL, 1, HB_GID_VCODEC_H265_MF,   },
+     { { "MPEG-4",              "mpeg4",      "MPEG-4 (libavcodec)",     HB_VCODEC_FFMPEG_MPEG4,      HB_MUX_MASK_MP4|HB_MUX_MASK_MKV, }, NULL, 1, HB_GID_VCODEC_MPEG4,  },
+     { { "MPEG-2",              "mpeg2",      "MPEG-2 (libavcodec)",     HB_VCODEC_FFMPEG_MPEG2,      HB_MUX_MASK_MP4|HB_MUX_MASK_MKV, }, NULL, 1, HB_GID_VCODEC_MPEG2,  },
+     { { "VP8",                 "VP8",        "VP8 (libvpx)",            HB_VCODEC_FFMPEG_VP8,       HB_MUX_MASK_WEBM|HB_MUX_MASK_MKV, }, NULL, 1, HB_GID_VCODEC_VP8,    },
+@@ -313,6 +317,15 @@ static int hb_video_encoder_is_enabled(int encoder, int disable_hardware)
+             case HB_VCODEC_FFMPEG_VT_H265:
+                 return hb_vt_h265_is_available();
+ #endif
++
++#ifdef _WIN32
++            // TODO: Try to instantiate a throwaway encoder to see if a suitable MediaFoundation encoder can be found?
++            // Alt, implement logic similar to ffmpeg's encoder selection, to see if one would be found.
++            case HB_VCODEC_FFMPEG_MF_H264:
++                return 1;
++            case HB_VCODEC_FFMPEG_MF_H265:
++                return 1;
++#endif
+         }
+     }
+ 
+@@ -1410,6 +1423,14 @@ void hb_video_quality_get_limits(uint32_t codec, float *low, float *high,
+             *high        = 100.;
+             break;
+ 
++        case HB_VCODEC_FFMPEG_MF_H264:
++        case HB_VCODEC_FFMPEG_MF_H265:
++            *direction   = 0;
++            *granularity = 1;
++            *low         = 0;
++            *high        = 100;
++            break;
++
+         case HB_VCODEC_FFMPEG_MPEG2:
+         case HB_VCODEC_FFMPEG_MPEG4:
+         default:
+@@ -1448,6 +1469,10 @@ const char* hb_video_quality_get_name(uint32_t codec)
+         case HB_VCODEC_FFMPEG_VT_H265:
+             return "CQ";
+ 
++        case HB_VCODEC_FFMPEG_MF_H264:
++        case HB_VCODEC_FFMPEG_MF_H265:
++            return "Quality";
++
+         default:
+             return "QP";
+     }
+@@ -1577,6 +1602,8 @@ const char* const* hb_video_encoder_get_profiles(int encoder)
+         case HB_VCODEC_FFMPEG_NVENC_H265:
+         case HB_VCODEC_FFMPEG_VT_H264:
+         case HB_VCODEC_FFMPEG_VT_H265:
++        case HB_VCODEC_FFMPEG_MF_H264:
++        case HB_VCODEC_FFMPEG_MF_H265:
+             return hb_av_profile_get_names(encoder);
+         default:
+             return NULL;
+@@ -1598,6 +1625,7 @@ const char* const* hb_video_encoder_get_levels(int encoder)
+         case HB_VCODEC_X264_10BIT:
+         case HB_VCODEC_FFMPEG_NVENC_H264:
+         case HB_VCODEC_FFMPEG_VT_H264:
++        case HB_VCODEC_FFMPEG_MF_H264:
+             return hb_h264_level_names;
+ 
+ #if HB_PROJECT_FEATURE_VCE
+@@ -1611,6 +1639,7 @@ const char* const* hb_video_encoder_get_levels(int encoder)
+         case HB_VCODEC_X265_16BIT:
+         case HB_VCODEC_FFMPEG_NVENC_H265:
+         case HB_VCODEC_FFMPEG_VCE_H265:
++        case HB_VCODEC_FFMPEG_MF_H265:
+             return hb_h265_level_names;
+ 
+ #ifdef __APPLE__
+@@ -3847,6 +3876,8 @@ static void job_setup(hb_job_t * job, hb_title_t * title)
+     job->qsv.decode                = !!(title->video_decode_support &
+                                         HB_DECODE_SUPPORT_QSV);
+ #endif
++    job->hwaccel_decode            = !!(title->video_decode_support &
++                                        HB_DECODE_SUPPORT_HWACCEL);
+ }
+ 
+ int hb_output_color_prim(hb_job_t * job)
+diff --git a/libhb/decavcodec.c b/libhb/decavcodec.c
+index b59283252..9a2dee516 100644
+--- a/libhb/decavcodec.c
++++ b/libhb/decavcodec.c
+@@ -153,6 +153,9 @@ struct hb_work_private_s
+     } qsv;
+ #endif
+ 
++    enum AVPixelFormat     hw_pix_fmt;
++    AVFrame              * hw_frame;
++
+     hb_list_t            * list_subtitle;
+ };
+ 
+@@ -363,6 +366,7 @@ static void closePrivData( hb_work_private_t ** ppv )
+                     pv->context->codec->name, pv->nframes, pv->decode_errors);
+         }
+         av_frame_free(&pv->frame);
++        av_frame_free(&pv->hw_frame);
+         close_video_filters(pv);
+         if ( pv->parser )
+         {
+@@ -393,6 +397,8 @@ static void closePrivData( hb_work_private_t ** ppv )
+         }
+         if ( pv->context )
+         {
++            if (pv->context->hw_device_ctx)
++                av_buffer_unref(&pv->context->hw_device_ctx);
+             hb_avcodec_free_context(&pv->context);
+         }
+         hb_audio_resample_free(pv->resample);
+@@ -1285,6 +1291,10 @@ static int decodeFrame( hb_work_private_t * pv, packet_info_t * packet_info )
+     int got_picture = 0, oldlevel = 0, ret;
+     AVPacket avp;
+     reordered_data_t * reordered;
++    AVFrame *recv_frame = pv->frame;
++
++    if (pv->hw_frame)
++        recv_frame = pv->hw_frame;
+ 
+     if ( global_verbosity_level <= 1 )
+     {
+@@ -1345,7 +1355,7 @@ static int decodeFrame( hb_work_private_t * pv, packet_info_t * packet_info )
+ 
+     do
+     {
+-        ret = avcodec_receive_frame(pv->context, pv->frame);
++        ret = avcodec_receive_frame(pv->context, recv_frame);
+         if (ret < 0 && ret != AVERROR(EAGAIN) && ret != AVERROR_EOF)
+         {
+             ++pv->decode_errors;
+@@ -1356,6 +1366,21 @@ static int decodeFrame( hb_work_private_t * pv, packet_info_t * packet_info )
+         }
+         got_picture = 1;
+ 
++        if (pv->hw_frame)
++        {
++            ret = av_hwframe_transfer_data(pv->frame, pv->hw_frame, 0);
++            pv->frame->pts = pv->hw_frame->pts;
++            av_frame_unref(pv->hw_frame);
++
++            if (ret < 0)
++            {
++                hb_error("Error transferring data to system memory\n");
++                break;
++            }
++            // In this case, the frame might be NV12 instead of YUV420P,
++            // but the filter chain seems to handle that transparently.
++        }
++
+         // recompute the frame/field duration, because sometimes it changes
+         compute_frame_duration( pv );
+         filter_video(pv);
+@@ -1369,6 +1394,21 @@ static int decodeFrame( hb_work_private_t * pv, packet_info_t * packet_info )
+     return got_picture;
+ }
+ 
++static enum AVPixelFormat get_hw_format(AVCodecContext *s, const enum AVPixelFormat *pix_fmts)
++{
++    hb_work_private_t *pv = s->opaque;
++    const enum AVPixelFormat *p;
++
++    for (p = pix_fmts; *p != -1; p++)
++    {
++        if (*p == pv->hw_pix_fmt)
++            return *p;
++    }
++
++    hb_error( "Failed to get HW surface format\n" );
++    return AV_PIX_FMT_NONE;
++}
++
+ static int decavcodecvInit( hb_work_object_t * w, hb_job_t * job )
+ {
+ 
+@@ -1462,6 +1502,45 @@ static int decavcodecvInit( hb_work_object_t * w, hb_job_t * job )
+     pv->context->err_recognition = AV_EF_CRCCHECK;
+     pv->context->error_concealment = FF_EC_GUESS_MVS|FF_EC_DEBLOCK;
+ 
++    if ( job && job->hwaccel_decode )
++    {
++        enum AVHWDeviceType hw_type = av_hwdevice_find_type_by_name("d3d11va");
++        pv->hw_pix_fmt = AV_PIX_FMT_NONE;
++        if (hw_type != AV_HWDEVICE_TYPE_NONE) {
++            int i;
++            for (i = 0;; i++)
++            {
++                const AVCodecHWConfig *config = avcodec_get_hw_config(pv->codec, i);
++                if (!config)
++                    break;
++                if (config->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX &&
++                    config->device_type == hw_type)
++                {
++                    pv->hw_pix_fmt = config->pix_fmt;
++                    break;
++                }
++            }
++        }
++        if (pv->hw_pix_fmt != AV_PIX_FMT_NONE)
++        {
++            AVBufferRef *hw_device_ctx;
++            int err;
++            if ((err = av_hwdevice_ctx_create(&hw_device_ctx, hw_type, NULL, NULL, 0)) < 0) {
++                hb_error( "decavcodecvInit: failed to create hwdevice" );
++            } else {
++                pv->context->get_format = get_hw_format;
++                pv->context->opaque = pv;
++                pv->context->hw_device_ctx = hw_device_ctx;
++                pv->hw_frame = av_frame_alloc();
++                if (pv->hw_frame == NULL)
++                {
++                    hb_log("decavcodecvInit: av_frame_alloc failed");
++                    return 1;
++                }
++            }
++        }
++    }
++
+     if ( pv->title->opaque_priv )
+     {
+         AVFormatContext *ic = (AVFormatContext*)pv->title->opaque_priv;
+@@ -2047,6 +2126,7 @@ static int get_color_matrix(int colorspace, hb_geometry_t geometry)
+ static int decavcodecvInfo( hb_work_object_t *w, hb_work_info_t *info )
+ {
+     hb_work_private_t *pv = w->private_data;
++    enum AVHWDeviceType hw_type;
+ 
+     int clock_min, clock_max, clock;
+     hb_video_framerate_get_limits(&clock_min, &clock_max, &clock);
+@@ -2099,6 +2179,23 @@ static int decavcodecvInfo( hb_work_object_t *w, hb_work_info_t *info )
+ 
+     info->video_decode_support = HB_DECODE_SUPPORT_SW;
+ 
++    hw_type = av_hwdevice_find_type_by_name("d3d11va");
++    if (hw_type != AV_HWDEVICE_TYPE_NONE)
++    {
++        int i;
++        for (i = 0;; i++)
++        {
++            const AVCodecHWConfig *config = avcodec_get_hw_config(pv->context->codec, i);
++            if (!config)
++                break;
++            if (config->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX &&
++                config->device_type == hw_type)
++            {
++                info->video_decode_support |= HB_DECODE_SUPPORT_HWACCEL;
++                break;
++            }
++        }
++    }
+ #if HB_PROJECT_FEATURE_QSV
+     if (avcodec_find_decoder_by_name(hb_qsv_decode_get_codec_name(pv->context->codec_id)))
+     {
+diff --git a/libhb/encavcodec.c b/libhb/encavcodec.c
+index 2263a7337..168c433ba 100644
+--- a/libhb/encavcodec.c
++++ b/libhb/encavcodec.c
+@@ -45,6 +45,9 @@ struct hb_work_private_s
+     } frame_info[FRAME_INFO_SIZE];
+ 
+     hb_chapter_queue_t * chapter_queue;
++
++    struct SwsContext  * sws_context_to_nv12;
++    hb_buffer_t        * nv12_buf;
+ };
+ 
+ int  encavcodecInit( hb_work_object_t *, hb_job_t * );
+@@ -98,6 +101,21 @@ static const char * const h265_vt_profile_name[] =
+     "auto", "main",  NULL // "main10" not currently supported.
+ };
+ 
++static const char * const h26x_mf_preset_name[] =
++{
++    "default", NULL
++};
++
++static const char * const h264_mf_profile_name[] =
++{
++    "auto", "baseline", "main", "high", NULL
++};
++
++static const char * const h265_mf_profile_name[] =
++{
++    "auto", "main",  NULL
++};
++
+ int encavcodecInit( hb_work_object_t * w, hb_job_t * job )
+ {
+     int ret = 0;
+@@ -154,6 +172,10 @@ int encavcodecInit( hb_work_object_t * w, hb_job_t * job )
+                     hb_log("encavcodecInit: H.264 (VideoToolbox)");
+                     codec_name = "h264_videotoolbox";
+                     break;
++                case HB_VCODEC_FFMPEG_MF_H264:
++                    hb_log("encavcodecInit: H.264 (MediaFoundation)");
++                    codec_name = "h264_mf";
++                    break;
+             }
+         }break;
+         case AV_CODEC_ID_HEVC:
+@@ -171,6 +193,10 @@ int encavcodecInit( hb_work_object_t * w, hb_job_t * job )
+                     hb_log("encavcodecInit: H.265 (VideoToolbox)");
+                     codec_name = "hevc_videotoolbox";
+                     break;
++                case HB_VCODEC_FFMPEG_MF_H265:
++                    hb_log("encavcodecInit: H.265 (MediaFoundation)");
++                    codec_name = "hevc_mf";
++                    break;
+             }
+         }break;
+     }
+@@ -320,6 +346,16 @@ int encavcodecInit( hb_work_object_t * w, hb_job_t * job )
+             av_dict_set( &av_opts, "rc", "vbr_peak", 0 );
+             hb_log( "encavcodec: encoding at rc=vbr_peak Bitrate %d", job->vbitrate );
+         }
++
++        if (job->vcodec == HB_VCODEC_FFMPEG_MF_H264 ||
++            job->vcodec == HB_VCODEC_FFMPEG_MF_H265) {
++            av_dict_set(&av_opts, "rate_control", "u_vbr", 0); // options are cbr, pc_vbr, u_vbr, ld_vbr, g_vbr, gld_vbr
++
++            // On Qualcomm encoders, the VBR modes can easily drop frames if
++            // the rate control feels like it needs it (in certain
++            // configurations), unless scenario is set to camera_record.
++            av_dict_set(&av_opts, "scenario", "camera_record", 0);
++        }
+     }
+     else
+     {
+@@ -409,6 +445,14 @@ int encavcodecInit( hb_work_object_t * w, hb_job_t * job )
+             hb_log( "encavcodec: encoding at constant quality %d",
+                     context->global_quality );
+         }
++        else if (job->vcodec == HB_VCODEC_FFMPEG_MF_H264 ||
++                 job->vcodec == HB_VCODEC_FFMPEG_MF_H265)
++        {
++            char quality[7];
++            snprintf(quality, 7, "%d", (int)job->vquality);
++            av_dict_set(&av_opts, "rate_control", "quality", 0);
++            av_dict_set(&av_opts, "quality", quality, 0);
++        }
+         else
+         {
+             // These settings produce better image quality than
+@@ -580,6 +624,48 @@ int encavcodecInit( hb_work_object_t * w, hb_job_t * job )
+         av_dict_set(&av_opts, "gops_per_idr", "1", 0);
+     }
+ 
++    if (job->vcodec == HB_VCODEC_FFMPEG_MF_H264)
++    {
++        context->profile = FF_PROFILE_UNKNOWN;
++        if (job->encoder_profile != NULL && *job->encoder_profile)
++        {
++            if (!strcasecmp(job->encoder_profile, "baseline"))
++                context->profile = FF_PROFILE_H264_BASELINE;
++            else if (!strcasecmp(job->encoder_profile, "main"))
++                 context->profile = FF_PROFILE_H264_MAIN;
++            else if (!strcasecmp(job->encoder_profile, "high"))
++                context->profile = FF_PROFILE_H264_HIGH;
++        }
++
++    }
++
++    if (job->vcodec == HB_VCODEC_FFMPEG_MF_H264 ||
++        job->vcodec == HB_VCODEC_FFMPEG_MF_H265)
++    {
++        av_dict_set(&av_opts, "hw_encoding", "1", 0);
++
++        pv->sws_context_to_nv12 = hb_sws_get_context(
++                                    job->width, job->height,
++                                    AV_PIX_FMT_YUV420P,
++                                    job->width, job->height,
++                                    AV_PIX_FMT_NV12,
++                                    SWS_LANCZOS|SWS_ACCURATE_RND,
++                                    SWS_CS_DEFAULT);
++
++        pv->nv12_buf = hb_frame_buffer_init(
++                         AV_PIX_FMT_NV12, job->width, job->height);
++
++        context->pix_fmt = AV_PIX_FMT_NV12;
++    }
++
++    if (job->vcodec == HB_VCODEC_FFMPEG_MF_H265)
++    {
++        // Qualcomm's HEVC encoder does support b-frames. Some chipsets
++        // support setting this to either 1 or 2, while others only support
++        // setting it to 1.
++        context->max_b_frames = 1;
++    }
++
+     if( job->pass_id == HB_PASS_ENCODE_1ST ||
+         job->pass_id == HB_PASS_ENCODE_2ND )
+     {
+@@ -727,6 +813,14 @@ void encavcodecClose( hb_work_object_t * w )
+         }
+         hb_avcodec_free_context(&pv->context);
+     }
++    if (pv->sws_context_to_nv12 != NULL)
++    {
++        sws_freeContext(pv->sws_context_to_nv12);
++    }
++    if (pv->nv12_buf != NULL)
++    {
++        hb_buffer_close(&pv->nv12_buf);
++    }
+     if( pv->file )
+     {
+         fclose( pv->file );
+@@ -887,6 +981,24 @@ static void Encode( hb_work_object_t *w, hb_buffer_t *in,
+     frame.linesize[1] = in->plane[1].stride;
+     frame.linesize[2] = in->plane[2].stride;
+ 
++    if (pv->sws_context_to_nv12)
++    {
++        uint8_t *srcs[]   = { in->plane[0].data, in->plane[1].data, in->plane[2].data };
++        int srcs_stride[] = { in->plane[0].stride, in->plane[1].stride, in->plane[2].stride };
++        uint8_t *dsts[]   = { pv->nv12_buf->plane[0].data, pv->nv12_buf->plane[1].data, NULL };
++        int dsts_stride[] = { pv->nv12_buf->plane[0].stride, pv->nv12_buf->plane[1].stride, 0 };
++
++        sws_scale(pv->sws_context_to_nv12,
++                  (const uint8_t* const*)srcs, srcs_stride,
++                  0, in->f.height, dsts, dsts_stride);
++
++        for (int i = 0; i < 3; i++)
++        {
++            frame.data[i] = dsts[i];
++            frame.linesize[i] = dsts_stride[i];
++        }
++    }
++
+     if (in->s.new_chap > 0 && pv->job->chapter_markers)
+     {
+         /* chapters have to start with an IDR frame so request that this
+@@ -1095,6 +1207,10 @@ const char* const* hb_av_preset_get_names(int encoder)
+         case HB_VCODEC_FFMPEG_VT_H265:
+             return h26x_vt_preset_name;
+ 
++        case HB_VCODEC_FFMPEG_MF_H264:
++        case HB_VCODEC_FFMPEG_MF_H265:
++            return h26x_mf_preset_name;
++
+         default:
+             return NULL;
+     }
+@@ -1112,6 +1228,10 @@ const char* const* hb_av_profile_get_names(int encoder)
+             return h264_vt_profile_name;
+         case HB_VCODEC_FFMPEG_VT_H265:
+             return h265_vt_profile_name;
++        case HB_VCODEC_FFMPEG_MF_H264:
++            return h264_mf_profile_name;
++        case HB_VCODEC_FFMPEG_MF_H265:
++            return h265_mf_profile_name;
+ 
+          default:
+              return NULL;
+diff --git a/libhb/handbrake/common.h b/libhb/handbrake/common.h
+index 06fcf5583..d43e875e8 100644
+--- a/libhb/handbrake/common.h
++++ b/libhb/handbrake/common.h
+@@ -511,7 +511,7 @@ struct hb_job_s
+          cfr:               0 (vfr), 1 (cfr), 2 (pfr) [see render.c]
+          pass:              0, 1 or 2 (or -1 for scan)
+          areBframes:        boolean to note if b-frames are used */
+-#define HB_VCODEC_MASK         0x0FFFFFF
++#define HB_VCODEC_MASK         0x3FFFFFF
+ #define HB_VCODEC_INVALID      0x0000000
+ #define HB_VCODEC_THEORA       0x0000002
+ #define HB_VCODEC_FFMPEG_MPEG4 0x0000010
+@@ -524,7 +524,9 @@ struct hb_job_s
+ #define HB_VCODEC_FFMPEG_NVENC_H265 0x00200000
+ #define HB_VCODEC_FFMPEG_VT_H264 0x00400000
+ #define HB_VCODEC_FFMPEG_VT_H265 0x00800000
+-#define HB_VCODEC_FFMPEG_MASK  (0x00000F0|HB_VCODEC_FFMPEG_VCE_H264|HB_VCODEC_FFMPEG_VCE_H265|HB_VCODEC_FFMPEG_NVENC_H264|HB_VCODEC_FFMPEG_NVENC_H265|HB_VCODEC_FFMPEG_VT_H264|HB_VCODEC_FFMPEG_VT_H265)
++#define HB_VCODEC_FFMPEG_MF_H264 0x01000000
++#define HB_VCODEC_FFMPEG_MF_H265 0x02000000
++#define HB_VCODEC_FFMPEG_MASK  (0x00000F0|HB_VCODEC_FFMPEG_VCE_H264|HB_VCODEC_FFMPEG_VCE_H265|HB_VCODEC_FFMPEG_NVENC_H264|HB_VCODEC_FFMPEG_NVENC_H265|HB_VCODEC_FFMPEG_VT_H264|HB_VCODEC_FFMPEG_VT_H265|HB_VCODEC_FFMPEG_MF_H264|HB_VCODEC_FFMPEG_MF_H265)
+ #define HB_VCODEC_QSV_H264     0x0000100
+ #define HB_VCODEC_QSV_H265_8BIT     0x0000200
+ #define HB_VCODEC_QSV_H265_10BIT    0x0000400
+@@ -535,14 +537,14 @@ struct hb_job_s
+ #define HB_VCODEC_X264         HB_VCODEC_X264_8BIT
+ #define HB_VCODEC_X264_10BIT   0x0020000
+ #define HB_VCODEC_X264_MASK    0x0030000
+-#define HB_VCODEC_H264_MASK    (HB_VCODEC_X264_MASK|HB_VCODEC_QSV_H264|HB_VCODEC_FFMPEG_VCE_H264|HB_VCODEC_FFMPEG_NVENC_H264|HB_VCODEC_FFMPEG_VT_H264)
++#define HB_VCODEC_H264_MASK    (HB_VCODEC_X264_MASK|HB_VCODEC_QSV_H264|HB_VCODEC_FFMPEG_VCE_H264|HB_VCODEC_FFMPEG_NVENC_H264|HB_VCODEC_FFMPEG_VT_H264|HB_VCODEC_FFMPEG_MF_H264)
+ #define HB_VCODEC_X265_8BIT    0x0001000
+ #define HB_VCODEC_X265         HB_VCODEC_X265_8BIT
+ #define HB_VCODEC_X265_10BIT   0x0002000
+ #define HB_VCODEC_X265_12BIT   0x0004000
+ #define HB_VCODEC_X265_16BIT   0x0008000
+ #define HB_VCODEC_X265_MASK    0x000F000
+-#define HB_VCODEC_H265_MASK    (HB_VCODEC_X265_MASK|HB_VCODEC_QSV_H265_MASK|HB_VCODEC_FFMPEG_VCE_H265|HB_VCODEC_FFMPEG_NVENC_H265|HB_VCODEC_FFMPEG_VT_H265)
++#define HB_VCODEC_H265_MASK    (HB_VCODEC_X265_MASK|HB_VCODEC_QSV_H265_MASK|HB_VCODEC_FFMPEG_VCE_H265|HB_VCODEC_FFMPEG_NVENC_H265|HB_VCODEC_FFMPEG_VT_H265|HB_VCODEC_FFMPEG_MF_H265)
+ 
+ /* define an invalid CQ value compatible with all CQ-capable codecs */
+ #define HB_INVALID_VIDEO_QUALITY (-1000.)
+@@ -719,6 +721,8 @@ struct hb_job_s
+         } enc_info;
+     } qsv;
+ 
++    int hwaccel_decode;
++
+ #ifdef __LIBHB__
+     /* Internal data */
+     hb_handle_t   * h;
+@@ -1108,6 +1112,7 @@ struct hb_title_s
+     int           video_decode_support;
+ #define HB_DECODE_SUPPORT_SW    0x01 // software (libavcodec or mpeg2dec)
+ #define HB_DECODE_SUPPORT_QSV   0x02 // Intel Quick Sync Video
++#define HB_DECODE_SUPPORT_HWACCEL 0x04 // HWAccel
+ 
+     hb_metadata_t * metadata;
+ 
+diff --git a/libhb/hb_json.c b/libhb/hb_json.c
+index 6074f334b..776906c40 100644
+--- a/libhb/hb_json.c
++++ b/libhb/hb_json.c
+@@ -550,8 +550,8 @@ hb_dict_t* hb_job_to_dict( const hb_job_t * job )
+     "s:{s:o, s:o, s:o,},"
+     // PAR {Num, Den}
+     "s:{s:o, s:o},"
+-    // Video {Encoder, QSV {Decode, AsyncDepth}}
+-    "s:{s:o, s:{s:o, s:o}},"
++    // Video {Encoder, Hwaccel Decode, QSV {Decode, AsyncDepth}}
++    "s:{s:o, s:o, s:{s:o, s:o}},"
+     // Audio {CopyMask, FallbackEncoder, AudioList []}
+     "s:{s:[], s:o, s:[]},"
+     // Subtitles {Search {Enable, Forced, Default, Burn}, SubtitleList []}
+@@ -577,6 +577,7 @@ hb_dict_t* hb_job_to_dict( const hb_job_t * job )
+             "Den",              hb_value_int(job->par.den),
+         "Video",
+             "Encoder",          hb_value_int(job->vcodec),
++            "HWDecode",         hb_value_bool(job->hwaccel_decode),
+             "QSV",
+                 "Decode",       hb_value_bool(job->qsv.decode),
+                 "AsyncDepth",   hb_value_int(job->qsv.async_depth),
+@@ -1060,12 +1061,14 @@ hb_job_t* hb_dict_to_job( hb_handle_t * h, hb_dict_t *dict )
+     //       ColorFormat, ColorRange,
+     //       ColorPrimaries, ColorTransfer, ColorMatrix,
+     //       ColorPrimariesOverride, ColorTransferOverride, ColorMatrixOverride,
++    //       HWDecode,
+     //       QSV {Decode, AsyncDepth}}
+     "s:{s:o, s?F, s?i, s?s, s?s, s?s, s?s, s?s,"
+     "   s?b, s?b,"
+     "   s?i, s?i,"
+     "   s?i, s?i, s?i,"
+     "   s?i, s?i, s?i,"
++    "   s?b,"
+     "   s?{s?b, s?i}},"
+     // Audio {CopyMask, FallbackEncoder, AudioList}
+     "s?{s?o, s?o, s?o},"
+@@ -1116,6 +1119,7 @@ hb_job_t* hb_dict_to_job( hb_handle_t * h, hb_dict_t *dict )
+             "ColorPrimariesOverride", unpack_i(&job->color_prim_override),
+             "ColorTransferOverride",  unpack_i(&job->color_transfer_override),
+             "ColorMatrixOverride",    unpack_i(&job->color_matrix_override),
++            "HWDecode",             unpack_b(&job->hwaccel_decode),
+             "QSV",
+                 "Decode",           unpack_b(&job->qsv.decode),
+                 "AsyncDepth",       unpack_i(&job->qsv.async_depth),
+diff --git a/libhb/module.defs b/libhb/module.defs
+index a6aec9702..e5b6e2479 100644
+--- a/libhb/module.defs
++++ b/libhb/module.defs
+@@ -170,7 +170,7 @@ else
+ endif
+ 
+ LIBHB.GCC.args.extra.dylib++ += -Wl,--out-implib,$(LIBHB.lib)
+-LIBHB.GCC.l += bcrypt ws2_32 uuid ole32
++LIBHB.GCC.l += bcrypt ws2_32 uuid ole32 mfplat strmiids
+ ifeq ($(HAS.dlfcn),1)
+     LIBHB.GCC.l += dl
+ endif
+diff --git a/libhb/muxavformat.c b/libhb/muxavformat.c
+index 0da371be7..2339933e9 100644
+--- a/libhb/muxavformat.c
++++ b/libhb/muxavformat.c
+@@ -268,6 +268,7 @@ static int avformatInit( hb_mux_object_t * m )
+         case HB_VCODEC_FFMPEG_VCE_H264:
+         case HB_VCODEC_FFMPEG_NVENC_H264:
+         case HB_VCODEC_FFMPEG_VT_H264:
++        case HB_VCODEC_FFMPEG_MF_H264:
+             track->st->codecpar->codec_id = AV_CODEC_ID_H264;
+             if (job->mux == HB_MUX_AV_MP4 && job->inline_parameter_sets)
+             {
+@@ -404,6 +405,7 @@ static int avformatInit( hb_mux_object_t * m )
+         case HB_VCODEC_FFMPEG_VCE_H265:
+         case HB_VCODEC_FFMPEG_NVENC_H265:
+         case HB_VCODEC_FFMPEG_VT_H265:
++        case HB_VCODEC_FFMPEG_MF_H265:
+             track->st->codecpar->codec_id  = AV_CODEC_ID_HEVC;
+             if (job->mux == HB_MUX_AV_MP4 && job->inline_parameter_sets)
+             {
+diff --git a/libhb/preset.c b/libhb/preset.c
+index 55e3d4c65..1a6bf5c86 100644
+--- a/libhb/preset.c
++++ b/libhb/preset.c
+@@ -1824,6 +1824,11 @@ int hb_preset_apply_video(const hb_dict_t *preset, hb_dict_t *job_dict)
+             hb_dict_remove(video_dict, "Quality");
+         }
+     }
++    if ((value = hb_dict_get(preset, "VideoHWDecode")) != NULL)
++    {
++        hb_dict_set(video_dict, "HWDecode",
++                    hb_value_xform(value, HB_VALUE_TYPE_BOOL));
++    }
+     qsv = hb_dict_get(video_dict, "QSV");
+     if (qsv == NULL)
+     {
+diff --git a/libhb/scan.c b/libhb/scan.c
+index d875b637f..1355c489f 100644
+--- a/libhb/scan.c
++++ b/libhb/scan.c
+@@ -1093,9 +1093,10 @@ skip_preview:
+ 
+         if (title->video_decode_support != HB_DECODE_SUPPORT_SW)
+         {
+-            hb_log("scan: supported video decoders:%s%s",
++            hb_log("scan: supported video decoders:%s%s%s",
+                    !(title->video_decode_support & HB_DECODE_SUPPORT_SW)    ? "" : " avcodec",
+-                   !(title->video_decode_support & HB_DECODE_SUPPORT_QSV)   ? "" : " qsv");
++                   !(title->video_decode_support & HB_DECODE_SUPPORT_QSV)   ? "" : " qsv",
++                   !(title->video_decode_support & HB_DECODE_SUPPORT_HWACCEL)?"" : " hwaccel");
+         }
+ 
+         if( interlaced_preview_count >= ( npreviews / 2 ) )
+diff --git a/libhb/work.c b/libhb/work.c
+index 8d98ef6c0..ba37505dd 100644
+--- a/libhb/work.c
++++ b/libhb/work.c
+@@ -297,6 +297,16 @@ hb_work_object_t* hb_video_encoder(hb_handle_t *h, int vcodec)
+             w->codec_param = AV_CODEC_ID_HEVC;
+             break;
+ #endif
++#ifdef _WIN32
++        case HB_VCODEC_FFMPEG_MF_H264:
++            w = hb_get_work(h, WORK_ENCAVCODEC);
++            w->codec_param = AV_CODEC_ID_H264;
++            break;
++        case HB_VCODEC_FFMPEG_MF_H265:
++            w = hb_get_work(h, WORK_ENCAVCODEC);
++            w->codec_param = AV_CODEC_ID_HEVC;
++            break;
++#endif
+ 
+         default:
+             hb_error("Unknown video codec (0x%x)", vcodec );
+@@ -539,6 +549,8 @@ void hb_display_job_info(hb_job_t *job)
+                 case HB_VCODEC_FFMPEG_NVENC_H265:
+                 case HB_VCODEC_FFMPEG_VT_H264:
+                 case HB_VCODEC_FFMPEG_VT_H265:
++                case HB_VCODEC_FFMPEG_MF_H264:
++                case HB_VCODEC_FFMPEG_MF_H265:
+                     hb_log("     + profile: %s", job->encoder_profile);
+                 default:
+                     break;
+@@ -563,6 +575,9 @@ void hb_display_job_info(hb_job_t *job)
+                 case HB_VCODEC_FFMPEG_VT_H264:
+                 // VT h.265 currently only supports auto level
+                 // case HB_VCODEC_FFMPEG_VT_H265:
++                // MF h.264/h.265 currently only supports auto level
++                // case HB_VCODEC_FFMPEG_MF_H264:
++                // case HB_VCODEC_FFMPEG_MF_H265:
+                     hb_log("     + level:   %s", job->encoder_level);
+                 default:
+                     break;
+diff --git a/preset/preset_template.json b/preset/preset_template.json
+index 93c58bf6e..b88af3062 100644
+--- a/preset/preset_template.json
++++ b/preset/preset_template.json
+@@ -110,6 +110,7 @@
+         "VideoQualityType": 2,
+         "VideoQualitySlider": 20.0,
+         "VideoQSVDecode": false,
++        "VideoHWDecode": false,
+         "VideoTwoPass": false,
+         "VideoTurboTwoPass": false,
+         "x264Option": "",
+diff --git a/test/module.defs b/test/module.defs
+index 33bee3111..855c34363 100644
+--- a/test/module.defs
++++ b/test/module.defs
+@@ -89,7 +89,7 @@ ifeq (1,$(HAS.pthread))
+ else
+     TEST.GCC.l += pthreadGC2
+ endif
+-    TEST.GCC.l += bcrypt iconv ws2_32 regex uuid ole32
++    TEST.GCC.l += bcrypt iconv ws2_32 regex uuid ole32 mfplat strmiids
+     TEST.GCC.D += PTW32_STATIC_LIB
+     TEST.GCC.args.extra.exe++ += -static
+ endif #   (1-mingw,$(HOST.cross)-$(HOST.system))
+diff --git a/test/test.c b/test/test.c
+index 6fbc6ce97..93fefe3bb 100644
+--- a/test/test.c
++++ b/test/test.c
+@@ -197,6 +197,7 @@ static uint64_t min_title_duration = 10;
+ static int      qsv_async_depth    = -1;
+ static int      qsv_decode         = -1;
+ #endif
++static int      hw_decode          = -1;
+ 
+ /* Exit cleanly on Ctrl-C */
+ static volatile hb_error_code done_error = HB_ERROR_NONE;
+@@ -1466,6 +1467,9 @@ static void ShowHelp()
+ "                           timing if it's below that rate.\n"
+ "                           If none of these flags are given, the default\n"
+ "                           is --pfr when -r is given and --vfr otherwise\n"
++"   --enable-hw-decoding    Force hardware decoding of the video track\n"
++"   --disable-hw-decoding   Disable hardware decoding of the video track,\n"
++"                           forcing software decoding instead\n"
+ "\n"
+ "\n"
+ "Audio Options ----------------------------------------------------------------\n"
+@@ -2183,6 +2187,8 @@ static int ParseOptions( int argc, char ** argv )
+             { "disable-qsv-decoding", no_argument,       &qsv_decode, 0,                  },
+             { "enable-qsv-decoding",  no_argument,       &qsv_decode, 1,                  },
+ #endif
++            { "disable-hw-decoding", no_argument,        &hw_decode, 0, },
++            { "enable-hw-decoding",  no_argument,        &hw_decode, 1, },
+ 
+             { "format",      required_argument, NULL,    'f' },
+             { "input",       required_argument, NULL,    'i' },
+@@ -4169,6 +4175,10 @@ static hb_dict_t * PreparePreset(const char *preset_name)
+         hb_dict_set(preset, "VideoQSVDecode", hb_value_int(qsv_decode));
+     }
+ #endif
++    if (hw_decode != -1)
++    {
++        hb_dict_set(preset, "VideoHWDecode", hb_value_int(hw_decode));
++    }
+     if (maxWidth > 0)
+     {
+         hb_dict_set(preset, "PictureWidth", hb_value_int(maxWidth));
+-- 
+2.20.1
+
